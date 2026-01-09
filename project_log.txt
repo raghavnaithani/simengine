@@ -1,0 +1,46 @@
+Decision Graph Simulator (DGS) - Project Log
+Started: 2026-01-08
+
+Format: [TIMESTAMP] [LEVEL] message
+
+[2026-01-08 00:00:00] [INFO] Project folder structure creation (empty directories only) performed.
+[2026-01-08 00:00:00] [INFO] Created directories:
+- backend/app/api
+- backend/app/engines
+- backend/app/models
+- backend/app/database
+- backend/app/utils
+- backend/app/tests
+- frontend/src/components
+- frontend/public
+- docs
+
+[2026-01-08 04:46:38] [INFO] User ran `docker-compose build` and attempted to bring up services.
+[2026-01-08 04:46:39] [WARN] Build failed for frontend/backend due to missing Dockerfile in earlier run; user later confirmed Dockerfiles exist.
+[2026-01-08 04:56:31] [INFO] `mongo` and `ollama` containers started (dgs_mongo, dgs_ollama).
+[2026-01-08 04:56:58] [INFO] User attempted to pull `llama3` model; pull failed with digest mismatch errors.
+[2026-01-08 16:24:00] [INFO] User pulled `phi3` model into Ollama successfully (model listed as `phi3:latest`).
+[2026-01-08 16:29:41] [INFO] Ollama logs show runner startup, model `phi3` loaded, and `/api/generate` activity. Logs indicate GPU offload and runner readiness.
+[2026-01-08 16:30:00] [INFO] Backend `main.py` contains Ollama health check endpoint at `/health`. Recommended to build/run backend and query `/health` next.
+[2026-01-08 16:40:00] [INFO] User built backend image (`docker-compose build backend`) successfully.
+[2026-01-08 16:40:20] [INFO] Backend container `dgs_backend` started (`docker-compose up -d backend`).
+[2026-01-08 16:41:00] [INFO] Health check queried: `GET /health` returned {"status":"ok","ollama":"online","model_target":"phi3"}.
+[2026-01-08 16:50:00] [INFO] Assistant offered next-step options: (A) implement test generate endpoint to call Ollama, (B) implement `ContextBuilder.build_knowledge_base()` Deep RAG ingestion test, (C) begin frontend bootstrap. These options were suggested but NOT executed automatically; they remain pending and require explicit user selection.
+[2026-01-08 16:55:00] [INFO] Assistant implemented Task A+B: 
+ - Replaced synchronous Mongo connection with Motor async client in `backend/app/database/connection.py`.
+ - Implemented `ContextBuilder.build_knowledge_base()` in `backend/app/engines/scraper.py` to insert a test KnowledgeChunk into Mongo.
+ - Updated `backend/app/database/vector_store.py` to use async DB access (`get_database`).
+ - Added test endpoints `/test/generate` and `/test/scrape` in `backend/app/main.py`.
+ - Updated `backend/requirements.txt` to use `motor` instead of `pymongo`.
+All changes are logged here; please restart the backend container (`docker-compose restart backend`) to apply the updates.
+
+[2026-01-10 10:00:00] [INFO] Prep for push: added `.gitignore`, `.env.example`, and `README.md`. Recommended files to commit: source, Dockerfiles, docker-compose.yml, .env.example, README.md, project_log.txt.
+
+[2026-01-10 10:05:00] [INFO] Backend rebuilt and restarted. `docker-compose build backend` and `docker-compose up -d backend` completed; Uvicorn started.
+
+[2026-01-10 10:06:00] [TEST] `/test/generate` invoked with prompt: "Hello Phi3". Response (truncated): "Hello! How can I assist you today?..." Model: phi3. (durations and metadata recorded in response)
+
+[2026-01-10 10:07:00] [TEST] `/test/scrape` invoked with prompt: "Test Knowledge". Insert result: {"status":"ok","inserted_id":"69615bc4b3c74aa934659a74","preview":"Simulated knowledge about 'Test Knowledge': sample content for testing."}
+[2026-01-10 10:20:00] [INFO] Frontend spec expansion: updated `frontend_design_spec.md` with full developer-ready design tokens, components, API examples, mock fixtures, accessibility, testing, and handoff checklist.
+
+

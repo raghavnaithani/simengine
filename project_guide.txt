@@ -1,0 +1,428 @@
+📂 MASTER SPECIFICATION: Decision Graph Simulator (DGS) — Comprehensive Guide (v1.2)
+
+Overview
+--------
+Decision Graph Simulator (DGS) is a local-first decision-intelligence toolkit designed to turn ambiguous, real-world prompts into branching simulated futures. DGS emphasizes interpretation over explicit prediction: it builds an explicit graph of decisions, outcomes, and failure modes rather than a single prescriptive answer. This document consolidates the project's philosophy, core mechanics, data contracts, engines, API surface, deployment recommendations, telemetry, and a prioritized roadmap. It merges the original design notes, the v1.2 Deep RAG prompt guide, and operational considerations into a single authoritative guide for developers and contributors.
+
+1. Manifesto & Core Philosophy
+--------------------------------
+- Purpose: Replace linear answers with branching simulations that highlight trade-offs, failure modes, and uncertainty.
+- Local-first: All core computation is expected to run on the user's machine within Docker containers (no external SaaS dependencies for the user).
+- Interpretation over Data: Separate immutable facts (Data Layer) from stochastic reasoning (Reasoning Layer).
+- Safety-first: Enforce mandatory risk enumeration and provenance to reduce hallucinations and unsupported claims.
+
+Anti-patterns (explicitly avoided)
+- Chatbot behavior masquerading as stateful decision modeling.
+- Treating the system as an oracle that predicts one correct future.
+- Leaking user data to third-party clouds by default.
+
+2. The Four Logic Pillars (Core Mechanics)
+-----------------------------------------
+
+2.1 Stochastic Interpretation (The Unique Brain)
+- Goal: Produce different, plausible interpretations of the same data.
+- Mechanisms:
+  - Provide dynamic per-request ReasoningEngine parameters: `temperature` (0.5–0.8 typical), `persona_prompt`, and `seed` for reproducibility when needed.
+  - Persona injection patterns (examples): "Skeptical Investor", "Cautious Regulator", "Aggressive Founder".
+  - Constrain randomness: outputs must conform to the DecisionNode schema; only content within allowed fields may vary.
+
+2.2 Incremental Simulation (Linked-State Efficiency)
+- Goal: Make branching and exploration fast by avoiding re-processing full history.
+- Mechanisms:
+  - Immutable upstream snapshots: T0..Tk are locked once a branch is created.
+  - Branch calls send only a `parent_summary` and recent delta context plus selected distilled nuggets.
+  - SimulationEngine composes new nodes from deltas; it never recomputes locked upstream nodes.
+
+2.3 Mandatory Risk Layer (Anti-hallucination)
+- Goal: Force explicit consideration of failure points to reduce overly optimistic outputs.
+- Mechanisms:
+  - DecisionNode must include `risks: List[Risk]` and at least one High severity when applicable.
+  - Pydantic validators reject nodes missing required risk constraints and trigger adversarial re-prompting.
+  - Risk objects include severity, description, and recommended mitigation strategy where applicable.
+
+2.4 Deep RAG Context Distillation (v1.2)
+- Goal: Improve grounding and recall while preserving the fidelity of sources.
+- Pipeline:
+  - Search 15 candidate sources, filter to best ~7, parallel-scrape them, chunk (no blind summarization), compute embeddings per chunk, store as KnowledgeChunks with provenance.
+  - Retrieval returns the top-K nuggets per prompt; ReasoningEngine receives these nuggets and parent summary only.
+
+3. System Architecture (End-to-end)
+----------------------------------
+
+3.1 Containers (docker-compose)
+- frontend: React + React Flow for visualization and interactions.
+- backend: Python (FastAPI) orchestrator and micro-engines.
+- mongo: MongoDB as primary persistence for graphs and context metadata.
+- ollama: Local LLM service for reasoning/inference.
+
+3.2 Major Layers
+- Presentation: React front-end that renders the decision graph, focus panels, and node editors.
+- Orchestration: FastAPI routes and BackgroundTasks; session management and job handling.
+- Intelligence: Micro-engines (ContextBuilder, ReasoningEngine, SimulationEngine).
+- Persistence: Mongo for graphs and KnowledgeChunks (with embeddings and TTL metadata).
+
+4. Engines — Responsibilities & Contracts
+----------------------------------------
+
+4.1 ContextBuilder (backend/engines/scraper.py)
+- Responsibility: Provide distilled, cached, embeddable context (KnowledgeChunks) for a given query.
+- Flow:
+  1. Query `global_context` for semantic matches (embedding similarity threshold configurable; default 0.85).
+  2. If cache hit, return nuggets; else run Deep RAG pipeline: search, parallel scrape, chunk, store with embeddings.
+- Output: List[KnowledgeChunk] with `{ cache_id, title, source_url, text, excerpt_span, embedding, verification_status }`.
+
+4.2 ReasoningEngine (backend/engines/reasoning.py)
+- Responsibility: Given parent summary, persona, and context nuggets, produce a single valid DecisionNode JSON.
+- Key responsibilities:
+  - Construct the system prompt template enforcing a strict JSON schema.
+  - Inject persona and sampled temperature for stochastic outputs.
+  - Validate output against Pydantic schemas and perform targeted re-prompts for failures.
+  - Enforce citation tokens; claims beyond local verification must include `[Source: cache:<id> | <url>]`.
+  - Compute `confidence_score` from retrieval metrics and validation heuristics.
+
+4.3 SimulationEngine (backend/engines/simulation.py)
+- Responsibility: Manage time steps, branching rules, node lifecycle, and game-over detection.
+- Operations:
+  - Automated world-building (optionally run N time steps initially).
+  - Branch handling: lock parents, orchestrate ContextBuilder + ReasoningEngine, append child node.
+  - State snapshots: ensure upstream immutability and allow multiple independent branches.
+
+5. Data Models & Schemas (backend/app/models/schemas.py)
+------------------------------------------------------
+
+Core models (synopsis):
+
+- Risk
+  - `id: str`
+  - `severity: Literal['Low','Medium','High']`
+  - `description: str`
+  - `mitigation_strategy: Optional[str]`
+📂 MASTER SPECIFICATION: Decision Graph Simulator (DGS) — Definitive v1.2 (Deep RAG only)
+
+Purpose and scope
+-----------------
+This file is the single authoritative reference for DGS v1.2 (Deep RAG edition). It contains only the finalized v1.2 design: Deep RAG search 15 → filter → parallel scrape → chunk (NO summarization) → embed → store. All legacy/obsolete flows (e.g., "scrape top 3 and summarize") were deliberately removed. Use this guide when implementing engines, prompts, APIs, and deployment.
+
+1. Core philosophy (concise)
+---------------------------
+- Local-first: run the full stack on a developer machine (Docker). No external SaaS required by default.
+- Interpretation-first: keep facts and reasoning separate; rely on distilled KnowledgeChunks for grounding.
+- Safety-first: mandatory risk enumeration, citation anchoring, and validation loops to reduce hallucinations.
+- Practical: keep runtime and memory requirements compatible with typical laptops (8–16 GB) by avoiding heavy enterprise components.
+
+2. The four pillars (finalized)
+--------------------------------
+
+2.1 Stochastic Interpretation
+- Always sample `temperature` per session (0.5–0.8) to produce different plausible futures. Persist `seed` optionally to reproduce runs.
+
+2.2 Incremental Simulation
+- Upstream nodes are snapshot-immutable. Branch requests receive only `parent_summary` and Top-K KnowledgeChunks, minimizing token usage and latency.
+
+2.3 Mandatory Risk Layer
+- Every DecisionNode must include `risks` and meet severity rules. Pydantic validators enforce the rule and trigger targeted adversarial retries when violated.
+
+2.4 Deep RAG (final pipeline)
+- Strict v1.2 pipeline:
+  1. Wide net search: gather metadata for Top 15 candidate sources.
+  2. Filter: exclude low-quality domains and spam; keep best ~5–7 sources.
+  3. Parallel scrape: concurrent page fetch using AsyncIO-based scrapers (Playwright/Crawl4AI fallback) with memory caps.
+  4. Chunking: split cleaned article text into ~400–700 char chunks (NO summarization) — keep original phrasing to preserve provenance.
+  5. Embedding & store: compute embeddings per chunk and store each as a KnowledgeChunk document in Mongo with TTL and provenance.
+  6. Retrieval: perform vector search (cosine) returning Top-K nuggets for ReasoningEngine.
+
+Notes: do not perform pre-generation summarization during ingestion — summarization at generation time can be done but only from retrieved chunks.
+
+3. System architecture (v1.2 components)
+---------------------------------------
+
+3.1 Containers (minimal, local-friendly)
+- `frontend`: React + React Flow visualization.
+- `backend`: FastAPI app implementing orchestration and engines.
+- `mongo`: MongoDB v6+ storing graphs and KnowledgeChunks (vectors stored inside documents).
+- `ollama`: local LLM serving model(s).
+
+3.2 High-level layers
+- Presentation: React UI with GraphCanvas, NodeCard, FocusPanel; React Query for state sync.
+- Orchestration: FastAPI + BackgroundTasks for async scraping/embedding jobs; idempotent endpoints.
+- Intelligence: micro-engines (`ContextBuilder`, `ReasoningEngine`, `SimulationEngine`).
+- Persistence: Mongo single source for graphs and vector metadata; no separate vector DB in v1.2.
+
+4. Engine contracts (explicit)
+-----------------------------
+
+4.1 ContextBuilder (Deep RAG engine) — responsibilities
+- Input: `query` string and optional `session_id` or `topic_tags`.
+- Primary functions:
+  - `retrieve_relevant_chunks(query, k=K)`: run vector search against `global_context` collection; return Top-K KnowledgeChunks and their similarity scores.
+  - `build_knowledge_base(query)`: run the Deep RAG ingestion pipeline (search 15 → filter → parallel scrape → chunk → embed → store) when cache coverage is insufficient.
+  - `get_context_for_reasoner(query, k=K, min_confidence=0.85)`: returns Top-K chunks and an aggregated `context_confidence` metric (max or average similarity).
+- Output: List[KnowledgeChunk]{id, content, source_url, chunk_index, embedding, created_at, ttl_days, verification_status, similarity_score}
+
+4.2 ReasoningEngine — responsibilities
+- Input: `parent_summary`, `persona`, Top-K KnowledgeChunks, `temperature`, `time_step`.
+- Primary functions:
+  - Build the strict system prompt including schema, citation rules, persona, and retrieval evidence.
+  - Call local LLM (Ollama) and stream/process output where supported.
+  - Validate LLM output against Pydantic `DecisionNode` schema; if invalid, run targeted adversarial re-prompt (max_retries configurable, default 3).
+  - Enforce citation anchoring: any factual claim beyond local training must include `[Source: cache:<id> | <url>]`. If missing, fail and retry with explicit instruction.
+  - Compute `confidence_score` combining retrieval similarity metrics and validation success.
+- Output: validated `DecisionNode` or error with failure reasons.
+
+4.3 SimulationEngine — responsibilities
+- Input: session graph state and branch requests `{ parent_node_id, action, persona }`.
+- Primary functions:
+  - Lock parent node and snapshot upstream immutable history.
+  - Orchestrate ContextBuilder + ReasoningEngine to create child node.
+  - Persist node, create edge, update session metadata, and return the new node id.
+  - Detect terminal states via domain rules and mark `game_over` with reason.
+
+5. Data models — definitive schemas (backend/app/models/schemas.py)
+----------------------------------------------------------------
+
+KnowledgeChunk (global_context collection)
+- id: str (UUID)
+- content: str (raw cleaned text chunk, ~400–700 chars)
+- source_url: str
+- source_title: Optional[str]
+- chunk_index: int
+- embedding: List[float]
+- created_at: datetime
+- ttl_days: int (default 30)
+- verification_status: Literal['verified','unverified','failed']
+
+Risk
+- id: str (UUID)
+- description: str
+- severity: Literal['Low','Medium','High','Critical']
+- likelihood: Literal['Low','Medium','High']
+- mitigation_strategy: Optional[str]
+- citation: Optional[str]  # cache_id or URL
+
+Alternative
+- id: str
+- description: str
+- action_type: str  # e.g., 'Pivot','Abort','Invest'
+- expected_outcome_summary: Optional[str]
+
+DecisionNode
+- id: str (UUID)
+- title: str
+- summary: str
+- description: str
+- time_step: int
+- created_by_engine: str
+- alternatives: List[Alternative]
+- risks: List[Risk]
+- source_citations: List[str]  # list of `cache_id` or URLs used
+- confidence_score: float  # 0.0 - 1.0
+- speculative: bool
+- created_at: datetime
+
+Validation (enforced):
+- `risks` cannot be empty; if node proposes material operations, at least one High severity required.
+- Any externally assertive claim lacking a matching chunk similarity >= 0.8 must include a citation or be flagged `speculative=true`.
+
+6. API surface (FastAPI) — final v1.2 endpoints and behavior
+-----------------------------------------------------------
+
+POST /simulate/start
+- body: { prompt: str, mode: 'Analytical'|'Quick', persona?: str }
+- behavior: creates session_id, triggers BackgroundTask to build initial world (3 steps) using Deep RAG; returns `{ session_id, job_id, status }`.
+
+POST /simulate/branch
+- body: { session_id: str, parent_node_id: str, action: str, persona?: str }
+- behavior: lock parent node, call SimulationEngine to create child node; if ingestion required, BackgroundTask may run and return job_id; endpoint is idempotent.
+
+GET /graph/{session_id}
+- behavior: return full graph JSON with nodes, edges, and node metadata (`speculative`, `confidence_score`, `source_citations`).
+
+GET /node/{node_id}
+- behavior: return node details including provenance references to KnowledgeChunks.
+
+Operational notes
+- Use `BackgroundTasks` for long running scraping/embedding; return job ids and provide `/jobs/{job_id}` polling endpoint.
+- Keep endpoints idempotent; branch creation must be safe under retries (check for duplicate child nodes by content hash).
+
+7. Prompt templates and enforcement rules
+----------------------------------------
+
+System prompt essentials (strict rules)
+- Include the exact DecisionNode JSON schema.
+- Rules to include verbatim:
+  1. Output must be valid JSON matching the schema.
+  2. Every factual claim sourced from external data must include `[Source: cache:<id> | <url>]` inline where used.
+  3. If claim cannot be grounded, set `speculative: true` and include `[Source: speculative]`.
+  4. Include `risks` array; if missing or insufficient, return error instructions for adversarial retry.
+
+Persona injection
+- Provide short persona paragraphs (Skeptical Investor, Aggressive Founder, etc.) appended to the prompt to bias reasoning styles while preserving schema constraints.
+
+Adversarial retry pattern
+- On validation failure, produce a minimal, targeted re-prompt: e.g., "Your output is missing High severity risks — identify at least one High severity failure mode with a citation and retry." Limit retries to `max_retries=3`.
+
+8. Deep RAG ingestion and retrieval details (operational)
+-------------------------------------------------------
+
+Search & filter
+- Use a search API or metadata-fetcher to collect Top 15 candidate results (title, url, snippet, domain).
+- Apply filtering heuristics: domain whitelist/blacklist, recency, snippet relevance score. Keep top ~5–7 sources for scraping.
+
+Parallel scraping
+- Use AsyncIO-based concurrency (aiohttp/Playwright/Crawl4AI when necessary). Limit concurrency (e.g., 5 workers) and impose per-process memory caps in Docker to avoid OOM.
+
+Cleaning & chunking
+- For each page, sanitize HTML -> extract main textual content -> remove boilerplate and ads -> chunk into ~400–700 char segments (prefer paragraph boundaries). Keep original wording; do NOT summarize here.
+
+Embedding & storage
+- Compute embeddings (sentence-transformers or local embedding model) per chunk and store in Mongo documents with embedding vector and provenance fields. Set TTL = 30 days by default.
+
+Retrieval
+- At query time, compute query embedding and perform cosine similarity against stored chunk embeddings; return Top-K chunks and their similarity scores.
+- Aggregated `context_confidence` can be computed as the max similarity or a weighted average. Use thresholds: cache_hit >= 0.85 (strong), soft_match >= 0.7.
+
+Hybrid fallback
+- If Top-K similarities are low (<0.7), supplement retrieval with a simple keyword search across chunk titles/excerpts (BM25-like fallback) to increase recall for exact-match claims.
+
+9. Hallucination mitigation (practical rules)
+-------------------------------------------
+
+Citation enforcement
+- The ReasoningEngine must fail a node if required citations are missing for claims that exceed a confidence threshold.
+
+Confidence calibration
+- Compute `confidence_score` from retrieval similarity and validation heuristics; cap scores appropriately (e.g., if max similarity < 0.5, maximum confidence 0.5).
+
+Speculative marking
+- Low-confidence claims are flagged `speculative`: the UI must render them with clear visual cues.
+
+10. Performance, memory, and operational constraints (how to keep it local)
+---------------------------------------------------------------------
+
+Memory & CPU guidance
+- Recommend 8–16 GB RAM; 8GB minimum with reduced token windows and smaller LLMs; 16GB preferred for smoother experience.
+- Provide a CPU-only fallback (smaller quantized model or lower token windows) in `OLLAMA_MODEL` environment variable.
+
+Docker tuning
+- Set `mem_limit` and `shm_size` for scraper/playwright containers. Limit concurrency to avoid exceeding host memory.
+
+Async patterns
+- Use `BackgroundTasks` and AsyncIO for scraping and embedding; keep UI interactions responsive and return job ids for long jobs.
+
+11. Logging and minimal telemetry (local)
+--------------------------------------
+
+Local logs (console or file) should include:
+- `[METRIC] Latency: Xs | CacheHit: True/False | TopSim: 0.87 | Retries: N`
+- LLM validation failures and retry counts.
+- Embedding/store latencies and chunk counts per ingestion job.
+
+12. Testing & CI guidance
+-------------------------
+
+Unit tests
+- Pydantic model validators (risks, citations, confidence range).
+- ContextBuilder retrieval behavior with fixtures for cache hits and misses.
+
+Integration tests
+- End-to-end simulate/start with a mocked ReasoningEngine returning deterministic JSON.
+- Branching correctness and idempotency tests using an in-memory Mongo instance.
+
+13. Security, privacy & legal notes
+---------------------------------
+
+- Default: Docker network is internal; do not expose Mongo or Ollama publicly.
+- Respect robots.txt; provide a toggle to opt out of web scraping if user prefers privacy/legal safety.
+- Allow explicit deletion/expiration of `session_id` and `global_context` data.
+
+14. Developer ergonomics & repo layout
+-------------------------------------
+
+Recommended layout (same as implementation plan):
+
+- backend/
+  - app/
+    - main.py
+    - api/
+      - routes.py
+    - engines/
+      - scraper.py  # ContextBuilder (Deep RAG)
+      - reasoning.py
+      - simulation.py
+    - models/
+      - schemas.py
+    - database/
+      - connection.py
+      - vector_store.py
+    - utils/
+      - prompt_templates.py
+      - validators.py
+    - tests/
+- frontend/
+  - src/
+    - App.js
+    - components/
+- docker-compose.yml
+- .env.example
+
+15. Runbook (step-by-step)
+--------------------------
+
+1) Start minimal infra
+
+```powershell
+docker-compose build
+docker-compose up -d mongo ollama
+```
+
+2) Install and load chosen Ollama model (if needed)
+
+```powershell
+docker exec -it dgs_ollama ollama pull llama3
+```
+
+3) Start backend and frontend
+
+```powershell
+docker-compose up --build backend frontend
+```
+
+4) If memory is constrained: set Ollama token window to 4k and reduce scraper concurrency in `.env`.
+
+16. Roadmap & prioritized features
+----------------------------------
+
+Immediate (v1.2 must-haves)
+- Deep RAG ingestion and retrieval.
+- Citation enforcement and mandatory risk validators.
+- BackgroundTasks scaffolding for scraping/embedding.
+
+Short term
+- Hybrid sparse fallback and confidence calibration.
+- Minimal telemetry logging for latency and retry rates.
+
+Medium term (optional)
+- Optional local vector DB integration (FAISS/HNSW) for very large corpora (only if the user chooses and host has sufficient RAM).
+- Scheduled pruning/compaction and optional offline embedding refresh (if host runs 24/7).
+
+17. Appendices
+-------------
+
+A — Example ReasoningEngine system prompt (v1.2)
+----------------------------------------------
+System: You are a Decision Node generator for Decision Graph Simulator v1.2. Output ONLY valid JSON that matches the provided DecisionNode schema. Use only the provided KnowledgeChunks as evidence. For grounded claims, append `[Source: cache:<id> | <url>]` next to the sentence. If you cannot ground a claim, set `speculative: true` and append `[Source: speculative]`. Ensure `risks` contains at least one High or Critical severity when recommending operational changes.
+
+B — Example branch sequence
+---------------------------
+1. UI sends POST /simulate/branch with `{ parent_node_id, action }`.
+2. Backend locks parent, invokes `ContextBuilder.get_context_for_reasoner`, returns Top-K chunks.
+3. `ReasoningEngine` generates validated `DecisionNode` with citations and `confidence_score`.
+4. Backend persists node and returns response; UI renders branch.
+
+C — Troubleshooting quick tips
+------------------------------
+- If scraping fails: check Playwright/Chromium memory limits and network access.
+- If LLM outputs invalid JSON repeatedly: inspect prompt templates and increase `max_retries` logging to capture raw outputs.
+- If cache hit ratio is low: tune ingestion filter heuristics and increase candidate source pool.
+
+--- end of definitive v1.2 guide

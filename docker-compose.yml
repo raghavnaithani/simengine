@@ -1,0 +1,65 @@
+services:
+  # 1. The Database (Stores Graph & Knowledge Chunks)
+  mongo:
+    image: mongo:latest
+    container_name: dgs_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  # 2. The Brain (Local AI)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: dgs_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_storage:/root/.ollama
+    # ENABLE GPU SUPPORT FOR T600
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # 3. Backend (Orchestrator + Scraper)
+  backend:
+    build: ./backend
+    container_name: dgs_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - mongo
+      - ollama
+    environment:
+      - MONGO_URL=mongodb://mongo:27017
+      - OLLAMA_URL=http://ollama:11434/api/generate
+      - OLLAMA_MODEL=phi3
+    # CRITICAL: Memory limits for Headless Browser (Scraper) safety
+    shm_size: '2gb' 
+    deploy:
+      resources:
+        limits:
+          memory: 4gb
+
+  # 4. Frontend (UI)
+  frontend:
+    build: ./frontend
+    container_name: dgs_frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    stdin_open: true
+    depends_on:
+      - backend
+
+volumes:
+  mongo_data:
+  ollama_storage:

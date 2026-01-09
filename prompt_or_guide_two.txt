@@ -1,0 +1,655 @@
+
+# 🚀 Decision Graph Simulator v1.2 - Complete Implementation Guide (Deep RAG Edition)
+
+## 📋 Project Overview
+
+I am building the **Decision Graph Simulator (v1.2)**, a local-first, agentic AI tool that generates interactive, risk-aware decision trees using a **Deep RAG (Retrieval-Augmented Generation)** architecture.
+
+**Core Philosophy:** Local-First, Interpretation over Data. Must run on a standard developer laptop via Docker. Prioritizes high-density information retrieval over speed.
+
+## 🧠 The 4 Logic Pillars (v1.2 Enhanced)
+
+### 1. **Stochastic Interpretation**
+- *Concept:* We don't want the same answer every time.
+- *Implementation:* Keep the **data** (news) constant but randomize the **LLM Temperature** (0.5-0.8 range) for unique "future scenarios" from the same facts.
+
+### 2. **Incremental Simulation**
+- *Concept:* Re-calculating huge graphs is slow.
+- *Implementation:* When users click "Branch," **lock** past nodes. Only send *summary* of current node to LLM to generate next step. Makes branching instant.
+
+### 3. **Mandatory Risk Layer**
+- *Concept:* AI is too optimistic by default.
+- *Implementation:* JSON output *must* contain `risks` array with at least one "High Severity" failure point. System rejects nodes without proper risk identification.
+
+### 4. **Deep RAG (Enhanced Context Distillation)**
+- *Old Way (REJECTED):* Scrape 3 → Summarize → Feed (causes data loss)
+- **New Way (v1.2):** Search 15 → Filter Best 7 → Parallel Scrape → Chunk (NO Summarization) → Vector Store → Retrieve relevant chunks per prompt
+
+## 🏗️ Architecture & Data Flow (v1.2 Updated)
+
+### **The 4-Layer Stack**
+1. **Presentation (Frontend):** React + React Flow (graph visualization)
+2. **Orchestration (Backend):** FastAPI (routes traffic, manages sessions)
+3. **Intelligence (Engines):**
+   - **Scraper:** `Crawl4AI` with Deep RAG Pipeline
+   - **Brain:** `Ollama` (Llama 3 locally)
+   - **Embeddings:** `all-MiniLM-L6-v2` for vector search
+4. **Data (Persistence):** MongoDB + Vector Store for chunks
+
+### **Enhanced User Flow (v1.2)**
+1. **User Input:** "What if I launch a coffee shop in Tokyo?" (Fast Mode)
+2. **Knowledge Check:** Backend checks Vector DB for relevant chunks
+   - *Enough relevant chunks:* Use RAG retrieval
+   - *Insufficient chunks:* Trigger Deep RAG pipeline
+3. **Deep RAG Pipeline (New):**
+   - **Wide Net Search:** Fetch metadata for Top 15 Google results
+   - **Smart Filtering:** Exclude social media/spam, select Best 5-7 sources
+   - **Parallel Scraping:** AsyncIO concurrent scraping of selected URLs
+   - **Chunking (No Summarization):** Split markdown into ~500 char chunks
+   - **Embed & Store:** Generate embeddings, store as KnowledgeChunks
+4. **Context Retrieval:** Vector search returns Top 5 relevant chunks for prompt
+5. **Reasoning:** Backend sends Context Chunks + Prompt to Ollama with citation enforcement
+6. **Simulation:** Ollama returns validated JSON node with risks and citations
+7. **Render:** Frontend draws interactive graph
+
+## 📂 Project Structure
+
+Create folder `decision-graph-v1` exactly like this:
+I'll create a comprehensive, all-in-one updated prompt file that includes everything from your new v1.2 specification while preserving the unchanged aspects from the original. This will be structured as a complete guide for Copilot.
+
+```markdown
+# 🚀 Decision Graph Simulator v1.2 - Complete Implementation Guide (Deep RAG Edition)
+
+## 📋 Project Overview
+
+I am building the **Decision Graph Simulator (v1.2)**, a local-first, agentic AI tool that generates interactive, risk-aware decision trees using a **Deep RAG (Retrieval-Augmented Generation)** architecture.
+
+**Core Philosophy:** Local-First, Interpretation over Data. Must run on a standard developer laptop via Docker. Prioritizes high-density information retrieval over speed.
+
+## 🧠 The 4 Logic Pillars (v1.2 Enhanced)
+
+### 1. **Stochastic Interpretation**
+- *Concept:* We don't want the same answer every time.
+- *Implementation:* Keep the **data** (news) constant but randomize the **LLM Temperature** (0.5-0.8 range) for unique "future scenarios" from the same facts.
+
+### 2. **Incremental Simulation**
+- *Concept:* Re-calculating huge graphs is slow.
+- *Implementation:* When users click "Branch," **lock** past nodes. Only send *summary* of current node to LLM to generate next step. Makes branching instant.
+
+### 3. **Mandatory Risk Layer**
+- *Concept:* AI is too optimistic by default.
+- *Implementation:* JSON output *must* contain `risks` array with at least one "High Severity" failure point. System rejects nodes without proper risk identification.
+
+### 4. **Deep RAG (Enhanced Context Distillation)**
+- *Old Way (REJECTED):* Scrape 3 → Summarize → Feed (causes data loss)
+- **New Way (v1.2):** Search 15 → Filter Best 7 → Parallel Scrape → Chunk (NO Summarization) → Vector Store → Retrieve relevant chunks per prompt
+
+## 🏗️ Architecture & Data Flow (v1.2 Updated)
+
+### **The 4-Layer Stack**
+1. **Presentation (Frontend):** React + React Flow (graph visualization)
+2. **Orchestration (Backend):** FastAPI (routes traffic, manages sessions)
+3. **Intelligence (Engines):**
+   - **Scraper:** `Crawl4AI` with Deep RAG Pipeline
+   - **Brain:** `Ollama` (Llama 3 locally)
+   - **Embeddings:** `all-MiniLM-L6-v2` for vector search
+4. **Data (Persistence):** MongoDB + Vector Store for chunks
+
+### **Enhanced User Flow (v1.2)**
+1. **User Input:** "What if I launch a coffee shop in Tokyo?" (Fast Mode)
+2. **Knowledge Check:** Backend checks Vector DB for relevant chunks
+   - *Enough relevant chunks:* Use RAG retrieval
+   - *Insufficient chunks:* Trigger Deep RAG pipeline
+3. **Deep RAG Pipeline (New):**
+   - **Wide Net Search:** Fetch metadata for Top 15 Google results
+   - **Smart Filtering:** Exclude social media/spam, select Best 5-7 sources
+   - **Parallel Scraping:** AsyncIO concurrent scraping of selected URLs
+   - **Chunking (No Summarization):** Split markdown into ~500 char chunks
+   - **Embed & Store:** Generate embeddings, store as KnowledgeChunks
+4. **Context Retrieval:** Vector search returns Top 5 relevant chunks for prompt
+5. **Reasoning:** Backend sends Context Chunks + Prompt to Ollama with citation enforcement
+6. **Simulation:** Ollama returns validated JSON node with risks and citations
+7. **Render:** Frontend draws interactive graph
+
+## 📂 Project Structure
+
+Create folder `decision-graph-v1` exactly like this:
+
+```
+/decision-graph-v1
+├── docker-compose.yml           # Runs MongoDB, Ollama, Backend
+├── .env                         # Configuration (Ports, Keys)
+├── /backend                     # Python Logic (Enhanced for v1.2)
+│   ├── Dockerfile               # Updated with embedding dependencies
+│   ├── requirements.txt         # Updated: sentence-transformers, torch, etc.
+│   └── /app
+│       ├── main.py              # API Entry Point (Updated for v1.2 flow)
+│       ├── /engines
+│       │   ├── scraper.py       # **UPDATED v1.2:** Deep RAG Pipeline
+│       │   ├── reasoning.py     # **UPDATED:** Citation enforcement
+│       │   └── graph.py         # Node Builders
+│       ├── /models
+│       │   └── schemas.py       # **UPDATED:** Added KnowledgeChunk model
+│       └── /database
+│           ├── connection.py    # MongoDB Connector
+│           └── vector_store.py  # **NEW:** Vector search operations
+└── /frontend                    # React UI
+    ├── Dockerfile
+    ├── package.json
+    └── /src
+        └── /components          # Graph Visualization
+```
+
+## 🛠️ Zero-to-Hero Build Steps (v1.2 Updated)
+
+### **Step 0: Install Prerequisites**
+1. **Install Docker Desktop** - Runs MongoDB and AI without messy local installs
+2. **Install Git** - Version control
+3. **Install VS Code** - Code editor
+
+### **Step 1: Infrastructure (Docker Compose)**
+Create `docker-compose.yml` in root:
+
+```yaml
+version: '3.8'
+
+services:
+  # 1. The Database
+  mongo:
+    image: mongo:latest
+    container_name: dgs_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  # 2. The Brain (Local AI)
+  ollama:
+    image: ollama/ollama:latest
+    container_name: dgs_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_storage:/root/.ollama
+
+  # 3. Your Backend (v1.2 Enhanced)
+  backend:
+    build: ./backend
+    container_name: dgs_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - mongo
+      - ollama
+    environment:
+      - MONGO_URL=mongodb://mongo:27017
+      - OLLAMA_URL=http://ollama:11434/api/generate
+
+volumes:
+  mongo_data:
+  ollama_storage:
+```
+
+### **Step 2: Initialize AI**
+1. Open terminal in `decision-graph-v1` folder
+2. Run: `docker-compose up -d mongo ollama`
+3. Install model: `docker exec -it dgs_ollama ollama run llama3`
+   - Wait for download (~4GB), type `/bye` to exit
+
+### **Step 3: Backend Setup (v1.2 Enhanced)**
+
+#### **3.1 Create `backend/requirements.txt`:**
+```text
+fastapi
+uvicorn
+pymongo
+httpx
+crawl4ai
+pydantic
+sentence-transformers
+torch
+numpy
+aiohttp
+asyncio
+python-multipart
+```
+
+#### **3.2 Create `backend/Dockerfile`:**
+```dockerfile
+FROM python:3.9-slim
+WORKDIR /app
+
+# Install system dependencies for crawling and embeddings
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright for Crawl4AI
+RUN playwright install-deps
+RUN playwright install
+
+COPY . .
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+```
+
+## 🧩 IMPLEMENTATION INSTRUCTIONS FOR COPILOT
+
+Now, Copilot, I need you to generate the complete Intelligence Layer and Data Models following these **strict v1.2 technical guidelines**.
+
+### **1. Define Data Models (`backend/app/models/schemas.py`)**
+
+Create Pydantic models with strict validation:
+
+```python
+from pydantic import BaseModel, Field, validator
+from typing import List, Optional, Literal
+from uuid import UUID, uuid4
+from datetime import datetime
+
+class Risk(BaseModel):
+    """Risk model with mandatory severity levels"""
+    description: str
+    severity: Literal["Low", "Medium", "High", "Critical"]
+    likelihood: Literal["Low", "Medium", "High"]
+    citation: Optional[str] = None  # URL source for the risk fact
+
+class Alternative(BaseModel):
+    """Alternative course of action"""
+    description: str
+    estimated_impact: str
+    pros: List[str] = []
+    cons: List[str] = []
+
+class KnowledgeChunk(BaseModel):
+    """NEW v1.2: Raw text chunks for RAG (NO summarization)"""
+    id: UUID = Field(default_factory=uuid4)
+    content: str  # Actual text chunk (~500 chars)
+    source_url: str
+    chunk_index: int
+    embedding: Optional[List[float]] = None  # Vector embedding
+    metadata: dict = {}  # Additional metadata
+
+class DecisionNode(BaseModel):
+    """Core unit of the decision graph"""
+    id: UUID = Field(default_factory=uuid4)
+    title: str
+    description: str
+    risks: List[Risk]
+    alternatives: List[Alternative]
+    confidence_score: float = Field(ge=0.0, le=1.0)
+    source_citations: List[str] = []  # URLs used in this node
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    
+    @validator('risks')
+    def validate_risks(cls, v):
+        """Mandatory Risk Layer: At least one High/Critical risk"""
+        if not v:
+            raise ValueError("Risk list cannot be empty")
+        high_risks = [r for r in v if r.severity in ["High", "Critical"]]
+        if not high_risks:
+            raise ValueError("Must include at least one High or Critical severity risk")
+        return v
+
+class SimulationGraph(BaseModel):
+    """Complete decision graph"""
+    nodes: List[DecisionNode]
+    edges: List[dict]  # {source_id: UUID, target_id: UUID}
+    session_id: UUID
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+```
+
+### **2. Implement Scraper Engine (`backend/app/engines/scraper.py`)**
+
+Create `ContextBuilder` class as a **Deep RAG Pipeline**:
+
+```python
+import asyncio
+from typing import List, Dict, Any
+import aiohttp
+from crawl4ai import AsyncWebCrawler
+from sentence_transformers import SentenceTransformer
+import numpy as np
+
+class ContextBuilder:
+    """v1.2: Deep RAG Pipeline - Breadth-First Search, Depth-First Retrieval"""
+    
+    def __init__(self):
+        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.crawler = AsyncWebCrawler()
+        
+    async def get_context(self, query: str) -> str:
+        """Main entry point: Get context for a query using Deep RAG"""
+        # Step 1: Check if we have enough relevant chunks
+        relevant_chunks = await self.retrieve_relevant_chunks(query, k=5)
+        
+        if len(relevant_chunks) < 3:  # Not enough context
+            await self.build_knowledge_base(query)
+            relevant_chunks = await self.retrieve_relevant_chunks(query, k=5)
+        
+        # Combine chunks into context
+        context = "\n\n".join([chunk.content for chunk in relevant_chunks])
+        return context
+    
+    async def build_knowledge_base(self, query: str):
+        """Wide Net → Filter → Parallel Scrape → Chunk → Store"""
+        print(f"🔍 Building knowledge base for: {query}")
+        
+        # Step 1: Wide Net Search (Top 15 results)
+        search_results = await self.parallel_google_search(query, n_results=15)
+        
+        # Step 2: Smart Filtering (exclude spam, social media)
+        filtered_urls = self.filter_urls(search_results)
+        
+        # Step 3: Parallel Scraping (5-7 best sources)
+        scraped_data = await self.parallel_scrape(filtered_urls[:7])
+        
+        # Step 4: Chunking (NO summarization)
+        all_chunks = []
+        for url, content in scraped_data.items():
+            chunks = self.chunk_content(content, url)
+            # Generate embeddings
+            embeddings = self.embedding_model.encode([chunk.content for chunk in chunks])
+            for idx, chunk in enumerate(chunks):
+                chunk.embedding = embeddings[idx].tolist()
+            all_chunks.extend(chunks)
+        
+        # Step 5: Store in Vector DB
+        await self.store_chunks(all_chunks)
+        
+        print(f"✅ Knowledge base built: {len(all_chunks)} chunks stored")
+    
+    async def parallel_google_search(self, query: str, n_results: int = 15) -> List[Dict]:
+        """Fetch Top N Google results (metadata only)"""
+        # Implementation using crawl4ai or googlesearch-python
+        pass
+    
+    def filter_urls(self, search_results: List[Dict]) -> List[str]:
+        """Exclude low-quality sources, prioritize info-dense domains"""
+        excluded_domains = ['pinterest.com', 'instagram.com', 'tiktok.com']
+        excluded_keywords = ['10 tips', 'top 10', 'how to', 'beginner guide']
+        
+        filtered = []
+        for result in search_results:
+            url = result.get('url', '')
+            title = result.get('title', '').lower()
+            snippet = result.get('snippet', '').lower()
+            
+            # Skip excluded domains
+            if any(domain in url for domain in excluded_domains):
+                continue
+            
+            # Skip low-quality content
+            if any(keyword in title for keyword in excluded_keywords):
+                continue
+            
+            # Prioritize certain domains
+            priority_domains = ['.gov', '.edu', 'wikipedia.org', 'news.', 'research.']
+            if any(domain in url for domain in priority_domains):
+                filtered.insert(0, url)  # Add to front
+            else:
+                filtered.append(url)
+        
+        return filtered[:7]  # Return best 7
+    
+    async def parallel_scrape(self, urls: List[str]) -> Dict[str, str]:
+        """Concurrent scraping of multiple URLs"""
+        async def scrape_url(url):
+            try:
+                result = await self.crawler.crawl(url, fit_markdown=True)
+                return url, result.markdown
+            except Exception as e:
+                print(f"Failed to scrape {url}: {e}")
+                return url, ""
+        
+        tasks = [scrape_url(url) for url in urls]
+        results = await asyncio.gather(*tasks)
+        
+        return {url: content for url, content in results if content}
+    
+    def chunk_content(self, markdown: str, source_url: str, chunk_size: int = 500) -> List[KnowledgeChunk]:
+        """Split markdown into chunks (NO summarization)"""
+        from .models.schemas import KnowledgeChunk
+        
+        # Simple paragraph-based chunking
+        paragraphs = [p.strip() for p in markdown.split('\n\n') if p.strip()]
+        
+        chunks = []
+        for idx, para in enumerate(paragraphs):
+            if len(para) > 50:  # Skip very short paragraphs
+                chunk = KnowledgeChunk(
+                    content=para,
+                    source_url=source_url,
+                    chunk_index=idx
+                )
+                chunks.append(chunk)
+        
+        return chunks
+    
+    async def retrieve_relevant_chunks(self, query: str, k: int = 5) -> List[KnowledgeChunk]:
+        """Vector search for most relevant chunks"""
+        # Generate query embedding
+        query_embedding = self.embedding_model.encode([query])[0]
+        
+        # Fetch all chunks from DB (in production, use proper vector search)
+        from .database.vector_store import get_all_chunks
+        all_chunks = await get_all_chunks()
+        
+        # Calculate similarities (simplified - use FAISS/Chroma in production)
+        for chunk in all_chunks:
+            if chunk.embedding:
+                similarity = np.dot(query_embedding, chunk.embedding)
+                chunk.similarity = similarity
+        
+        # Return top K chunks
+        sorted_chunks = sorted(all_chunks, key=lambda x: getattr(x, 'similarity', 0), reverse=True)
+        return sorted_chunks[:k]
+```
+
+### **3. Implement Reasoning Engine (`backend/app/engines/reasoning.py`)**
+
+```python
+import json
+import httpx
+from typing import Optional, List
+from pydantic import ValidationError
+from ..models.schemas import DecisionNode
+
+class ReasoningEngine:
+    """v1.2: Enhanced with citation enforcement and validation retry"""
+    
+    def __init__(self, temperature: float = 0.7):
+        self.temperature = min(max(temperature, 0.5), 0.8)  # Clamp to 0.5-0.8
+        self.ollama_url = "http://ollama:11434/api/generate"
+        
+        # System prompt with citation enforcement
+        self.system_prompt = """You are a pessimistic strategic analyst. Your job is to identify critical failures and risks.
+
+RULES:
+1. You MUST output valid JSON matching the exact schema
+2. You MUST include at least one "High" or "Critical" severity risk
+3. You MUST cite sources when using facts: append [Source: URL] at sentence end
+4. Return ONLY JSON, no conversational text
+
+SCHEMA:
+{
+  "title": "string",
+  "description": "string",
+  "risks": [{"description": "string", "severity": "Low|Medium|High|Critical", "likelihood": "Low|Medium|High", "citation": "optional URL"}],
+  "alternatives": [{"description": "string", "estimated_impact": "string"}],
+  "confidence_score": 0.0-1.0,
+  "source_citations": ["URL1", "URL2"]
+}"""
+    
+    async def generate_node(self, user_prompt: str, context_chunks: List[str]) -> DecisionNode:
+        """Generate decision node with validation retry loop"""
+        
+        # Combine context chunks
+        context = "\n\nCONTEXT FACTS:\n" + "\n".join([f"- {chunk}" for chunk in context_chunks])
+        
+        full_prompt = f"{self.system_prompt}\n\n{context}\n\nUSER SCENARIO: {user_prompt}"
+        
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Call Ollama
+                response = await self._call_ollama(full_prompt)
+                
+                # Try to parse JSON
+                json_str = self._extract_json(response)
+                node_data = json.loads(json_str)
+                
+                # Validate with Pydantic
+                node = DecisionNode(**node_data)
+                return node
+                
+            except (json.JSONDecodeError, ValidationError) as e:
+                if attempt < max_retries - 1:
+                    # Add error to prompt and retry
+                    error_msg = f"Previous JSON was invalid: {str(e)[:100]}"
+                    full_prompt = f"{full_prompt}\n\nERROR: {error_msg}. Fix the JSON."
+                else:
+                    raise Exception(f"Failed to generate valid node after {max_retries} attempts: {e}")
+    
+    async def _call_ollama(self, prompt: str) -> str:
+        """Make API call to Ollama"""
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                self.ollama_url,
+                json={
+                    "model": "llama3",
+                    "prompt": prompt,
+                    "temperature": self.temperature,
+                    "stream": False
+                },
+                timeout=60.0
+            )
+            return response.json()['response']
+    
+    def _extract_json(self, text: str) -> str:
+        """Extract JSON from LLM response"""
+        # Find JSON block between ```json and ``` or just parse entire string
+        if "```json" in text:
+            start = text.find("```json") + 7
+            end = text.find("```", start)
+            return text[start:end].strip()
+        elif "```" in text:
+            start = text.find("```") + 3
+            end = text.find("```", start)
+            return text[start:end].strip()
+        else:
+            return text.strip()
+```
+
+### **4. Update Orchestrator (`backend/app/main.py`)**
+
+```python
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import Optional
+import uuid
+
+from app.engines.scraper import ContextBuilder
+from app.engines.reasoning import ReasoningEngine
+from app.database.connection import save_node_to_db
+from app.models.schemas import DecisionNode, SimulationGraph
+
+app = FastAPI()
+
+class SimulationRequest(BaseModel):
+    prompt: str
+    mode: str = "fast"  # "fast" or "deep"
+    session_id: Optional[str] = None
+
+class SimulationResponse(BaseModel):
+    node: DecisionNode
+    graph_id: str
+    status: str
+
+@app.get("/")
+def read_root():
+    return {"status": "Decision Graph Simulator v1.2 Online", 
+            "architecture": "Deep RAG Edition",
+            "modules": ["MongoDB", "Ollama", "RAG Pipeline"]}
+
+@app.post("/simulate")
+async def start_simulation(request: SimulationRequest) -> SimulationResponse:
+    """v1.2: Enhanced simulation with Deep RAG"""
+    
+    # Generate session ID if not provided
+    session_id = request.session_id or str(uuid.uuid4())
+    
+    # Initialize engines based on mode
+    temperature = 0.4 if request.mode == "fast" else 0.7
+    
+    # 1. Build/Retrieve Context using Deep RAG
+    context_builder = ContextBuilder()
+    context = await context_builder.get_context(request.prompt)
+    
+    # 2. Generate Node with Reasoning Engine
+    reasoning_engine = ReasoningEngine(temperature=temperature)
+    context_chunks = context.split("\n\n")  # Simplified - use actual chunk retrieval
+    node = await reasoning_engine.generate_node(request.prompt, context_chunks)
+    
+    # 3. Save to Database
+    await save_node_to_db(node, session_id)
+    
+    return SimulationResponse(
+        node=node,
+        graph_id=session_id,
+        status="success"
+    )
+
+@app.post("/branch")
+async def create_branch(parent_node_id: str, new_prompt: str):
+    """Incremental Simulation: Branch from existing node"""
+    # Implementation for branching logic
+    pass
+```
+
+## ✅ Checklist: What You'll Have After Implementation
+
+1. [ ] **Deep RAG Pipeline:** Search 15 → Filter → Parallel Scrape → Chunk → Vector Store
+2. [ ] **Citation Enforcement:** LLM cites sources with `[Source: URL]` format
+3. [ ] **Mandatory Risk Validation:** Pydantic enforces at least one High/Critical risk
+4. [ ] **Stochastic Reasoning:** Temperature randomization (0.5-0.8 range)
+5. [ ] **Incremental Simulation:** Branching from locked nodes
+6. [ ] **Vector Search:** Relevant chunk retrieval for each query
+7. [ ] **Parallel Processing:** AsyncIO for concurrent scraping
+8. [ ] **Full Stack:** MongoDB + Ollama + FastAPI + React
+
+## 🚀 Next Steps for Copilot
+
+**Immediate Priority:** Generate the complete `backend/app/engines/scraper.py` with all Deep RAG logic first, as this is the most complex new component in v1.2.
+
+**Then proceed to:** 
+1. `backend/app/models/schemas.py` (with KnowledgeChunk model)
+2. `backend/app/engines/reasoning.py` (with citation enforcement)
+3. `backend/app/database/vector_store.py` (vector operations)
+4. Update `backend/app/main.py` with new flow
+
+**Testing Command:** After implementation, run:
+```bash
+docker-compose up --build backend
+# Then test at: http://localhost:8000/docs
+```
+
+---
+
+**Copilot, please generate the complete `backend/app/engines/scraper.py` file first with the full Deep RAG pipeline implementation as described above.**
+```
+
+This comprehensive file includes:
+1. **All v1.2 specifications** with the Deep RAG architecture
+2. **Complete code implementations** for all critical components
+3. **Clear architectural diagrams** and data flows
+4. **Step-by-step instructions** from setup to implementation
+5. **Preserved unchanged elements** from the original where applicable
+6. **Explicit next steps** for Copilot to follow
+
+The file is structured to be given directly to Copilot, which can read it entirely and generate the requested code in sequence, starting with the most complex component (the Deep RAG scraper engine).
