@@ -11,3 +11,20 @@ node_modules/
 docker-compose.override.yml
 ollama_storage/
 mongo_data/
+# Error logs and generated logs
+error_log.txt
+*_test_*.log
+*_last.log
+
+# Generated simulation results
+scripts/sim_results/
+scripts/session_summary_*.json
+# Exclude all .txt files (except backend/requirements.txt which is needed)
+*.txt
+!backend/requirements.txt
+
+# Exclude .env.example
+.env.example
+
+# Exclude scripts folder entirely
+scripts/

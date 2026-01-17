@@ -47,3 +47,73 @@ class DecisionNode(BaseModel):
         if not v or len(v) == 0:
             raise ValueError('DecisionNode must include at least one risk')
         return v
+
+    @validator('time_step', pre=True, always=True)
+    def coerce_time_step(cls, v):
+        # Accept float or numeric string and coerce to int, default 0
+        try:
+            if v is None or v == "":
+                return 0
+            if isinstance(v, float):
+                return int(v)
+            if isinstance(v, str):
+                # attempt to parse numeric string
+                if v.strip().isdigit():
+                    return int(v.strip())
+                try:
+                    f = float(v)
+                    return int(f)
+                except Exception:
+                    return 0
+            return int(v)
+        except Exception:
+            return 0
+
+    @validator('risks', pre=True, always=True)
+    def ensure_risks(cls, v):
+        # If missing/empty, provide a default risk
+        if not v:
+            return [
+                {
+                    'description': 'General uncertainty due to limited data.',
+                    'severity': 'Low',
+                    'likelihood': 'Low'
+                }
+            ]
+        # Normalize simple string risks into dicts
+        out = []
+        for item in v:
+            if isinstance(item, str):
+                out.append({'description': item, 'severity': 'Medium', 'likelihood': 'Medium'})
+            elif isinstance(item, dict):
+                # ensure required keys exist
+                if not item.get('description'):
+                    item['description'] = item.get('title') or 'Unknown Risk'
+                if item.get('severity') not in ['Low', 'Medium', 'High', 'Critical']:
+                    item['severity'] = 'Medium'
+                if item.get('likelihood') not in ['Low', 'Medium', 'High']:
+                    item['likelihood'] = 'Medium'
+                out.append(item)
+        if not out:
+            return [
+                {'description': 'General uncertainty.', 'severity': 'Low', 'likelihood': 'Low'}
+            ]
+        return out
+
+    @validator('source_citations', pre=True)
+    def normalize_citations(cls, v):
+        if not v:
+            return []
+        out = []
+        for item in v:
+            if isinstance(item, str):
+                out.append(item)
+            elif isinstance(item, dict):
+                # prefer readable title or id
+                if item.get('title'):
+                    out.append(item.get('title'))
+                elif item.get('_id'):
+                    out.append(str(item.get('_id')))
+                else:
+                    out.append(str(item))
+        return out

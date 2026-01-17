@@ -31,8 +31,12 @@ services:
     container_name: dgs_backend
     ports:
       - "8000:8000"
-    volumes:
-      - ./backend:/app
+    # Disabled bind-mount to avoid Windows I/O errors when Docker cannot access host path.
+    # For development you can re-enable the bind mount below if your environment supports it.
+    # volumes:
+    #   - ./backend:/app
+    # Run without the reload watcher so uvicorn won't stat the /app mount continuously.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     depends_on:
       - mongo
       - ollama

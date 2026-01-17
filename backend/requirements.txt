@@ -4,3 +4,6 @@ motor
 httpx
 crawl4ai
 pydantic
+sentence-transformers
+pytest
+pytest-asyncio
