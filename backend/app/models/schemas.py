@@ -1,7 +1,7 @@
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Literal
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 
 class KnowledgeChunk(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -10,7 +10,7 @@ class KnowledgeChunk(BaseModel):
     source_title: Optional[str] = None
     chunk_index: int = 0
     embedding: Optional[List[float]] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     ttl_days: int = 30
     verification_status: Literal['verified','unverified','failed'] = 'unverified'
 
@@ -40,15 +40,15 @@ class DecisionNode(BaseModel):
     source_citations: List[str] = []
     confidence_score: float = 0.0
     speculative: bool = False
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-    @validator('risks')
+    @field_validator('risks')
     def must_have_risks(cls, v):
         if not v or len(v) == 0:
             raise ValueError('DecisionNode must include at least one risk')
         return v
 
-    @validator('time_step', pre=True, always=True)
+    @field_validator('time_step', mode="before")
     def coerce_time_step(cls, v):
         # Accept float or numeric string and coerce to int, default 0
         try:
@@ -69,7 +69,7 @@ class DecisionNode(BaseModel):
         except Exception:
             return 0
 
-    @validator('risks', pre=True, always=True)
+    @field_validator('risks', mode="before")
     def ensure_risks(cls, v):
         # If missing/empty, provide a default risk
         if not v:
@@ -80,27 +80,29 @@ class DecisionNode(BaseModel):
                     'likelihood': 'Low'
                 }
             ]
-        # Normalize simple string risks into dicts
-        out = []
-        for item in v:
-            if isinstance(item, str):
-                out.append({'description': item, 'severity': 'Medium', 'likelihood': 'Medium'})
-            elif isinstance(item, dict):
-                # ensure required keys exist
-                if not item.get('description'):
-                    item['description'] = item.get('title') or 'Unknown Risk'
-                if item.get('severity') not in ['Low', 'Medium', 'High', 'Critical']:
-                    item['severity'] = 'Medium'
-                if item.get('likelihood') not in ['Low', 'Medium', 'High']:
-                    item['likelihood'] = 'Medium'
-                out.append(item)
-        if not out:
-            return [
-                {'description': 'General uncertainty.', 'severity': 'Low', 'likelihood': 'Low'}
-            ]
-        return out
+        return v
 
-    @validator('source_citations', pre=True)
+    @field_validator('confidence_score')
+    def validate_confidence_score(cls, v):
+        if not (0.0 <= v <= 1.0):
+            raise ValueError('Confidence score must be between 0.0 and 1.0')
+        return v
+
+    @field_validator('risks')
+    def validate_risk_severity(cls, v):
+        for risk in v:
+            if risk.severity == 'Critical' and risk.likelihood == 'High':
+                raise ValueError('Critical risks with high likelihood must be mitigated or justified')
+        return v
+
+    @field_validator('source_citations', mode="before")
+    def validate_citations(cls, v):
+        for citation in v:
+            if not citation.startswith('Source:'):
+                raise ValueError(f'Invalid citation format: {citation}')
+        return v
+
+    @field_validator('source_citations', mode="before")
     def normalize_citations(cls, v):
         if not v:
             return []

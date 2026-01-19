@@ -18,10 +18,12 @@ import asyncio
 from datetime import datetime
 import httpx
 from html import unescape
+import pytz
 
-from app.utils.logger import append_log, record_event
-from app.database.connection import get_database
-from app.database.vector_store import upsert_chunk, query_similar_chunks
+from backend.app.utils.logger import append_log, record_event
+from backend.app.database.connection import get_database
+from backend.app.database.vector_store import upsert_chunk, query_similar_chunks
+from backend.app.utils.metrics import metrics, track_latency
 
 
 class ContextBuilder:
@@ -148,14 +150,15 @@ class ContextBuilder:
 
     async def build_knowledge_base(self, query: str, top_k: int = 5):
         """Full Deep RAG ingestion flow: search -> filter -> scrape -> chunk -> embed -> upsert."""
-        record_event(level='INFO', action='deep_rag.implementation.start', message=f"Begin Deep RAG ingestion for query: {query}")
-
-        candidates = await self.search_candidates(query, top_n=15)
-        filtered = self.filter_candidates(candidates, keep=7)
-        scraped = await self.parallel_scrape(filtered, concurrency=5)
-
-        inserted_ids: List[str] = []
-        total_chunks = 0
+        with track_latency('rag.ingestion'):
+            record_event(level='INFO', action='deep_rag.implementation.start', message=f"Begin Deep RAG ingestion for query: {query}")
+            
+            candidates = await self.search_candidates(query, top_n=15)
+            filtered = self.filter_candidates(candidates, keep=7)
+            scraped = await self.parallel_scrape(filtered, concurrency=5)
+            
+            inserted_ids: List[str] = []
+            total_chunks = 0
         for src_idx, src in enumerate(scraped):
             content = src.get('text', '')
             chunks = self.chunk_text(content)
@@ -168,19 +171,68 @@ class ContextBuilder:
                     'source_title': src.get('title'),
                     'chunk_index': idx,
                     'verification_status': 'unverified',
-                    'created_at': datetime.utcnow(),
+                    'created_at': datetime.now(pytz.UTC),
                     'ttl_days': 30
                 }
                 await upsert_chunk(chunk_doc)
                 inserted_ids.append(chunk_doc['id'])
-
-        record_event(level='INFO', action='deep_rag.implementation.done', message=f"Deep RAG ingestion completed", details={"query": query, "candidates": len(candidates), "filtered": len(filtered), "scraped": len(scraped), "total_chunks": total_chunks, "inserted_count": len(inserted_ids)})
-        return {'status': 'ok', 'query': query, 'inserted_ids': inserted_ids, 'total_chunks': total_chunks}
+            
+            # Log ingestion metrics
+            metrics.record_metric(
+                operation='rag.parallel_scrape',
+                chunk_count=total_chunks,
+                success=True,
+                details={'sources_scraped': len(scraped)}
+            )
+            
+            record_event(level='INFO', action='deep_rag.implementation.done', message=f"Deep RAG ingestion completed", details={"query": query, "candidates": len(candidates), "filtered": len(filtered), "scraped": len(scraped), "total_chunks": total_chunks, "inserted_count": len(inserted_ids)})
+            return {'status': 'ok', 'query': query, 'inserted_ids': inserted_ids, 'total_chunks': total_chunks}
 
     async def retrieve_relevant_chunks(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
-        # fallback to vector search
-        docs = await query_similar_chunks(query=query, k=k)
-        return docs
+        """Retrieve relevant chunks using vector search with hybrid sparse fallback."""
+        with track_latency('rag.retrieval'):
+            # Vector search
+            docs = await query_similar_chunks(query=query, k=k)
+            
+            cache_hit = len(docs) > 0
+            top_similarity = max([d.get('_similarity_score', 0.0) for d in docs], default=0.0)
+            
+            # Log retrieval metrics
+            metrics.record_metric(
+                operation='rag.vector_search',
+                cache_hit=cache_hit,
+                similarity_score=top_similarity,
+                chunk_count=len(docs),
+                success=True
+            )
+            
+            # Fallback: if no results or all low scores, use keyword search
+            if not docs or all(d.get('_similarity_score', 0.0) < 0.7 for d in docs):
+                record_event(level='INFO', action='hybrid_sparse_fallback', message=f"Fallback triggered for query: {query}")
+                
+                with track_latency('rag.text_fallback'):
+                    # Perform BM25-like keyword search as fallback
+                    db = await get_database()
+                    coll = db['global_context']
+                    keyword_results = await coll.find({
+                        '$text': {'$search': query}
+                    }, {
+                        'score': {'$meta': 'textScore'}
+                    }).sort('score', -1).limit(k).to_list(length=k)
+                    
+                    fallback_count = len(keyword_results) if keyword_results else 0
+                    metrics.record_metric(
+                        operation='rag.text_search',
+                        cache_hit=fallback_count > 0,
+                        chunk_count=fallback_count,
+                        success=fallback_count > 0,
+                        details={'trigger': 'low_vector_similarity', 'threshold': 0.7}
+                    )
+                    
+                    record_event(level='INFO', action='fallback_results', message=f"Fallback returned {fallback_count} chunks")
+                    return keyword_results
+            
+            return docs
 
     async def get_context_for_reasoner(self, query: str, k: int = 5, min_confidence: float = 0.0):
         chunks = await self.retrieve_relevant_chunks(query, k=k)

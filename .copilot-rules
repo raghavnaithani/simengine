@@ -1,0 +1,55 @@
+# GitHub Copilot Rules for SimEngine Project
+
+## 🚫 NEVER DO: Incremental Change Loops
+- ❌ Don't make one change, test, fix error, test again, repeat
+- ❌ Don't run tests multiple times during debugging
+- ❌ Don't make assumptions without reading full error logs
+
+## ✅ ALWAYS DO: Complete Analysis First
+1. Read entire error output completely
+2. List ALL issues found (create checklist if 5+ issues)
+3. Identify root causes in specific files
+4. Make ALL necessary changes across ALL files
+5. Run tests ONCE after all fixes applied
+
+## Code Style Preferences
+- Python: PEP 8, type hints, async/await patterns
+- Testing: pytest with AsyncMock for async, MagicMock for sync
+- Mocking: Patch at instance level with `patch.object()` when possible
+- Error handling: Always include context and actionable messages
+
+## Project-Specific Context
+- SimulationEngine: Manages decision tree, time steps, branching
+- ContextBuilder: Deep RAG pipeline with hybrid sparse fallback
+- ReasoningEngine: LLM orchestration with retry logic and validation
+- All external dependencies (DB, APIs, file I/O) must be mockable
+
+## Testing Requirements
+- All tests must pass before suggesting changes are complete
+- Mock ALL external dependencies (no real network/DB calls in tests)
+- Test execution should be < 10 seconds for full suite
+- Use autouse fixtures for global patches when appropriate
+
+## File Organization
+- Backend code: `backend/app/`
+- Tests: `backend/tests/`
+- Configuration: root directory
+- Documentation: `docs/`
+
+## When Debugging
+1. Read full error traceback
+2. Check all related files (not just the one with error)
+3. Verify mock setup matches actual code expectations
+4. Consider async/sync method mismatches
+5. Check fixture scope and lifecycle
+
+## Communication Style
+- Be direct and concise
+- Don't apologize repeatedly - just fix it
+- Provide file paths as clickable links: [file.py](path/to/file.py)
+- Use code blocks for all code examples
+- Include line numbers when referencing specific code
+
+---
+
+**Remember:** Batch all changes together. Test once. No loops.

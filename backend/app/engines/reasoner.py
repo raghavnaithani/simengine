@@ -9,9 +9,10 @@ from typing import Any, Dict, Optional
 from datetime import datetime
 
 
-from app.utils.logger import append_log, record_event
-from app.models.schemas import DecisionNode, Risk, Alternative
-from app.database.connection import get_database
+from backend.app.utils.logger import append_log, record_event
+from backend.app.utils.metrics import metrics, track_latency
+from backend.app.models.schemas import DecisionNode, Risk, Alternative
+from backend.app.database.connection import get_database
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434/api/generate")
 MODEL_NAME = os.getenv("OLLAMA_MODEL", "phi3")
@@ -39,40 +40,56 @@ class ReasoningEngine:
 
         while attempts < max_attempts:
             attempts += 1
-            try:
-                append_log(f"ReasoningEngine: model call attempt {attempts}")
-                async with httpx.AsyncClient(timeout=timeout) as client:
-                    resp = await client.post(
-                        OLLAMA_URL,
-                        json={
-                            "model": self.model,
-                            "prompt": prompt,
-                            "stream": False,
-                            "format": "json",
-                            "options": {
-                                "temperature": min(max(temperature, 0.0), 1.0),  # Clamp to 0.0-1.0
+        with track_latency('llm.api_call'):
+            attempts = 0
+            max_attempts = 3
+            backoff = 1.0
+            
+            while attempts < max_attempts:
+                attempts += 1
+                try:
+                    append_log(f"ReasoningEngine: model call attempt {attempts}")
+                    async with httpx.AsyncClient(timeout=timeout) as client:
+                        resp = await client.post(
+                            OLLAMA_URL,
+                            json={
+                                "model": self.model,
+                                "prompt": prompt,
+                                "stream": False,
+                                "format": "json",
+                                "options": {
+                                    "temperature": min(max(temperature, 0.0), 1.0),  # Clamp to 0.0-1.0
+                                },
                             },
-                        },
-                    )
-                    resp.raise_for_status()
-                    try:
-                        j = resp.json()
-                        if isinstance(j, dict) and "response" in j:
-                            return j["response"]
-                    except Exception:
-                        pass
-                    return resp.text
-
-            except Exception as e:
-                append_log(f"ReasoningEngine: error on attempt {attempts}: {str(e)}")
-                record_event(level="ERROR", action="reasoner.call.error", message="model call failed", details={"attempts": attempts, "error": str(e)})
-                if attempts == max_attempts:
-                    raise RuntimeError(f"Model call failed: {str(e)}")
-                await asyncio.sleep(backoff)
-                backoff *= 2
-        return ""
-
-    def _calculate_confidence_score(self, context_confidence: float, validation_retries: int = 0) -> float:
+                        )
+                        resp.raise_for_status()
+                        try:
+                            j = resp.json()
+                            if isinstance(j, dict) and "response" in j:
+                                metrics.record_metric(
+                                    operation='llm.api_call',
+                                    retry_count=attempts - 1,
+                                    success=True
+                                )
+                                return j["response"]
+                        except Exception:
+                            pass
+                        return resp.text
+                
+                except Exception as e:
+                    append_log(f"ReasoningEngine: error on attempt {attempts}: {str(e)}")
+                    record_event(level="ERROR", action="reasoner.call.error", message="model call failed", details={"attempts": attempts, "error": str(e)})
+                    if attempts == max_attempts:
+                        metrics.record_metric(
+                            operation='llm.api_call',
+                            retry_count=attempts - 1,
+                            success=False,
+                            details={'error': str(e)}
+                        )
+                        raise RuntimeError(f"Model call failed: {str(e)}")
+                    await asyncio.sleep(backoff)
+                    backoff *= 2
+            return ""
         """Calculate confidence_score from retrieval metrics and validation success.
         
         Rules per project guide:
@@ -101,6 +118,71 @@ class ReasoningEngine:
         
         # Round to 2 decimal places
         return round(adjusted_score, 2)
+
+    def _should_mark_speculative(
+        self,
+        confidence_score: float,
+        context_confidence: float,
+        has_citations: bool,
+        validation_retries: int
+    ) -> bool:
+        """Determine if a DecisionNode should be marked as speculative.
+        
+        Mark as speculative if ANY of these conditions are true:
+        1. Confidence score < 0.5 (low overall confidence)
+        2. Context confidence < 0.8 (weak retrieval similarity per project guide section 5)
+        3. No citations found AND context_confidence < 0.9 (claims without grounding)
+        4. Multiple validation retries (>= 2) indicate unstable reasoning
+        
+        Per project guide section 9: "Low-confidence claims are flagged speculative"
+        Per project guide section 5: "lacking a matching chunk similarity >= 0.8 must be flagged speculative=true"
+        
+        Args:
+            confidence_score: Calculated confidence (0.0-1.0)
+            context_confidence: Max retrieval similarity (0.0-1.0)
+            has_citations: Whether node includes any source citations
+            validation_retries: Number of retries needed for valid output
+            
+        Returns:
+            True if node should be marked speculative
+        """
+        # Rule 1: Overall confidence too low
+        if confidence_score < 0.5:
+            record_event(
+                level="INFO",
+                action="speculative.low_confidence",
+                message=f"Marking speculative: confidence {confidence_score} < 0.5"
+            )
+            return True
+        
+        # Rule 2: Retrieval similarity below threshold (project guide: 0.8)
+        if context_confidence < 0.8:
+            record_event(
+                level="INFO",
+                action="speculative.low_similarity",
+                message=f"Marking speculative: context similarity {context_confidence} < 0.8"
+            )
+            return True
+        
+        # Rule 3: No citations and weak grounding
+        if not has_citations and context_confidence < 0.9:
+            record_event(
+                level="INFO",
+                action="speculative.no_citations",
+                message=f"Marking speculative: no citations, similarity {context_confidence} < 0.9"
+            )
+            return True
+        
+        # Rule 4: Multiple retries indicate unstable reasoning
+        if validation_retries >= 2:
+            record_event(
+                level="INFO",
+                action="speculative.retries",
+                message=f"Marking speculative: {validation_retries} validation retries"
+            )
+            return True
+        
+        return False
 
     def _janitor_fix_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Aggressively fixes messy AI output to satisfy Pydantic."""
@@ -152,7 +234,7 @@ class ReasoningEngine:
         return data
 
     def _extract_and_clean_json(self, raw_text: str) -> Dict[str, Any]:
-        """Aggressively clean and extract JSON from LLM output with multiple fallback strategies."""
+        """Aggressively clean and extract JSON from LLM output with multiple fallback strategies, including citation enforcement."""
         if not raw_text or not isinstance(raw_text, str):
             raise ValueError("Empty or invalid input text")
 
@@ -164,24 +246,55 @@ class ReasoningEngine:
         clean_text = clean_text.strip()
 
         # Strategy 2: Remove ALL control characters (ASCII + Unicode) except newlines/tabs
-        # Remove ASCII control chars (0-31) except \n (0x0a) and \t (0x09)
         clean_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', clean_text)
-        # Remove Unicode control characters (C1 control characters: 0x80-0x9F)
         clean_text = re.sub(r'[\u0080-\u009f]', '', clean_text)
-        # Remove other problematic Unicode control chars
-        clean_text = re.sub(r'[\u200b-\u200f\u2028-\u202f]', '', clean_text)  # Zero-width spaces, line/paragraph separators
+        clean_text = re.sub(r'[\u200b-\u200f\u2028-\u202f]', '', clean_text)
 
         # Strategy 3: Remove comments (both // and /* */ style)
         clean_text = re.sub(r'//.*?$', '', clean_text, flags=re.MULTILINE)
         clean_text = re.sub(r'/\*.*?\*/', '', clean_text, flags=re.DOTALL)
 
         # Strategy 4: Remove trailing commas before } or ]
-        # Handle multiple trailing commas
         while True:
-            new_text = re.sub(r',(\s*[}\]])', r'\1', clean_text)
+            new_text = re.sub(r',\s*([}\]])', r'\1', clean_text)
             if new_text == clean_text:
                 break
             clean_text = new_text
+
+        # Extract and remove citation tokens before parsing JSON
+        citation_pattern = r'\[CITATION:([^\]]+)\]'
+        citations = re.findall(citation_pattern, raw_text)
+        if citations:
+            append_log(f"ReasoningEngine: Detected citations: {citations}")
+
+        # Debug logging for citation validation
+        append_log(f"Validating citations: {citations}")
+        for citation in citations:
+            if not re.match(r'^[a-zA-Z0-9_-]+$', citation):
+                append_log(f"Invalid citation detected: {citation}")
+                raise ValueError(f"Invalid citation format: {citation}")
+
+        # Remove citation tokens from text
+        raw_text = re.sub(citation_pattern, '', raw_text)  # Remove citation tokens from text
+
+        # Ensure proper JSON formatting for large inputs
+        if raw_text.startswith('{') and raw_text.endswith('}'):
+            try:
+                json.loads(raw_text)  # Validate JSON structure
+            except json.JSONDecodeError as e:
+                append_log(f"ReasoningEngine: Invalid JSON structure detected: {e}")
+                raise ValueError("Invalid JSON structure for large input")
+
+        # Simplified handling for large inputs
+        if len(raw_text) > 1000:  # Arbitrary threshold for large input
+            append_log("ReasoningEngine: Received large input for processing.")
+            append_log(f"ReasoningEngine: First 500 characters of input: {raw_text[:500]}")
+            append_log(f"ReasoningEngine: Last 500 characters of input: {raw_text[-500:]}")
+            try:
+                json.loads(raw_text)  # Validate JSON structure directly
+            except json.JSONDecodeError as e:
+                append_log(f"ReasoningEngine: Large input validation failed: {e}")
+                raise ValueError("Large input validation failed")
 
         # Try parsing with progressively more aggressive extraction
         parse_attempts = []
@@ -231,6 +344,7 @@ class ReasoningEngine:
             try:
                 data = parse_func(clean_text)
                 if isinstance(data, dict) and data:  # Ensure we got a non-empty dict
+                    data['citations'] = citations  # Include citations in the parsed JSON
                     append_log(f"ReasoningEngine: JSON parsed successfully using strategy: {strategy_name}")
                     return data
             except Exception as e:
@@ -241,12 +355,18 @@ class ReasoningEngine:
         try:
             data = json.loads(raw_text)
             if isinstance(data, dict):
+                data['citations'] = citations  # Include citations in the parsed JSON
                 append_log(f"ReasoningEngine: JSON parsed from raw text")
                 return data
         except Exception:
             pass
 
         raise ValueError(f"JSON parsing failed after all strategies. Last error: {last_error}")
+
+    def _validate_citation(self, citation: str) -> bool:
+        """Validate a citation token. Example logic: ensure it matches a predefined schema."""
+        # Placeholder validation logic; replace with actual rules
+        return bool(re.match(r'^[a-zA-Z0-9_-]+$', citation))
 
     async def generate_decision(
         self, 
@@ -257,17 +377,18 @@ class ReasoningEngine:
         temperature: Optional[float] = None,
         validation_retries: int = 0  # Track retry count for confidence calculation
     ) -> DecisionNode:
-        # Sample temperature if not provided (0.5-0.8 range per spec)
-        if temperature is None:
-            temperature = round(random.uniform(0.5, 0.8), 2)
-        
-        # Extract context_confidence from context dict
-        context_confidence = 0.0
-        if context and isinstance(context, dict):
-            context_confidence = context.get('context_confidence', 0.0)
-        
-        # Get persona prompt
-        persona_text = self._get_persona_prompt(persona)
+        with track_latency('llm.generate'):
+            # Sample temperature if not provided (0.5-0.8 range per spec)
+            if temperature is None:
+                temperature = round(random.uniform(0.5, 0.8), 2)
+            
+            # Extract context_confidence from context dict
+            context_confidence = 0.0
+            if context and isinstance(context, dict):
+                context_confidence = context.get('context_confidence', 0.0)
+            
+            # Get persona prompt
+            persona_text = self._get_persona_prompt(persona)
         
         # Enhanced instruction with stronger JSON emphasis
         instruction = (
@@ -317,6 +438,30 @@ class ReasoningEngine:
                 )
                 clean_data['confidence_score'] = confidence_score
                 
+                # Determine if node should be marked speculative
+                has_citations = bool(clean_data.get('source_citations', []))
+                should_be_speculative = self._should_mark_speculative(
+                    confidence_score=confidence_score,
+                    context_confidence=context_confidence,
+                    has_citations=has_citations,
+                    validation_retries=json_attempt  # Use current retry count
+                )
+                
+                # Apply speculative flag if needed
+                if should_be_speculative and not clean_data.get('speculative', False):
+                    clean_data['speculative'] = True
+                    record_event(
+                        level="INFO",
+                        action="speculative.flag_applied",
+                        message=f"Node marked speculative",
+                        details={
+                            "confidence_score": confidence_score,
+                            "context_confidence": context_confidence,
+                            "has_citations": has_citations,
+                            "validation_retries": json_attempt
+                        }
+                    )
+                
                 node = DecisionNode(**clean_data)
 
                 # persist model response for audit
@@ -326,7 +471,7 @@ class ReasoningEngine:
                         "job_id": job_id,
                         "raw": body,
                         "clean": clean_data,
-                        "node": node.dict(),
+                        "node": node.model_dump(),
                         "prompt": full_prompt[:1000],
                         "created_at": datetime.now().astimezone(),
                         "success": True,
@@ -336,8 +481,22 @@ class ReasoningEngine:
                     append_log(f"ReasoningEngine: failed to persist parsed node to DB: {ex_db}")
                     record_event(level="ERROR", action="reasoner.persist_failed", message="failed to persist parsed node", details={"job_id": job_id, "error": str(ex_db)})
 
-                append_log(f"ReasoningEngine: Successfully built node {node.id}")
-                record_event(level="INFO", action="reasoner.generate.success", message=f"node {node.id}", details={"job_id": job_id, "node_id": node.id, "confidence_score": confidence_score})
+                append_log(f"ReasoningEngine: Successfully built node {node.id} (speculative={node.speculative})")
+                record_event(level="INFO", action="reasoner.generate.success", message=f"node {node.id}", details={"job_id": job_id, "node_id": node.id, "confidence_score": confidence_score, "speculative": node.speculative})
+                
+                # Log generation metrics
+                metrics.record_metric(
+                    operation='llm.generate',
+                    success=True,
+                    details={
+                        'confidence_score': confidence_score,
+                        'persona': persona,
+                        'temperature': temperature,
+                        'retry_count': json_attempt,
+                        'speculative': node.speculative
+                    }
+                )
+                
                 return node
                 
             except Exception as e:
@@ -366,6 +525,19 @@ class ReasoningEngine:
 
                     # On error, use low confidence
                     error_confidence = self._calculate_confidence_score(context_confidence=0.0, validation_retries=999)
+                    
+                    # Log failure metrics
+                    metrics.record_metric(
+                        operation='llm.generate',
+                        success=False,
+                        details={
+                            'error': last_parse_error,
+                            'retry_count': max_json_retries,
+                            'persona': persona,
+                            'temperature': temperature
+                        }
+                    )
+                    
                     return DecisionNode(
                         id=str(uuid.uuid4()),
                         title="Simulation Error",

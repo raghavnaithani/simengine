@@ -3,10 +3,16 @@ from pathlib import Path
 import os
 import json
 from typing import Any, Optional
+from pytz import timezone
+
+# Set the root error log path
+ERROR_LOG_PATH = Path(__file__).resolve().parents[3] / 'error_log.txt'
+
+# Define the timezone for Delhi, India
+delhi_tz = timezone('Asia/Kolkata')
 
 # Separate log files
 PROJECT_LOG_PATH = Path(os.getcwd()).resolve().parents[0] / 'project_log.txt'
-ERROR_LOG_PATH = Path(os.getcwd()).resolve().parents[0] / 'error_log.txt'
 
 
 def _ensure_log_path(log_path: Path) -> None:
@@ -18,7 +24,7 @@ def record_event(level: str = 'INFO', action: Optional[str] = None, message: Opt
     
     NOTE: This is for backend system logs. Agent observations go to project_log.txt via agent_log().
     """
-    ts = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+    ts = datetime.now(delhi_tz).strftime('%Y-%m-%d %H:%M:%S')
     action_part = f" {action}" if action else ""
     msg_part = message or ""
 
@@ -49,11 +55,12 @@ def record_event(level: str = 'INFO', action: Optional[str] = None, message: Opt
 def append_log(message: str, level: str = 'INFO') -> None:
     """Backward-compatible wrapper - writes to error_log.txt for raw backend logs."""
     record_event(level=level, message=message)
+    print(f"[DEBUG] Writing log: {message}")
 
 
 def agent_log(message: str, level: str = 'INFO') -> None:
     """Write agent observations to project_log.txt (high-level summaries only, no raw data)."""
-    ts = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+    ts = datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S')
     log_line = f"[{ts}] [{level}] {message}\n"
     
     _ensure_log_path(PROJECT_LOG_PATH)

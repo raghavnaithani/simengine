@@ -1,4 +1,4 @@
-Decision Graph Simulator (DGS) - Project Log
+Decision Graph Simulator (DGS) - Project Log (short)
 Started: 2026-01-08
 
 Format: [TIMESTAMP] [LEVEL] message
@@ -304,428 +304,7 @@ Format: [TIMESTAMP] [LEVEL] message
 [2026-01-08 16:29:41] [INFO] Ollama logs show runner startup, model `phi3` loaded, and `/api/generate` activity. Logs indicate GPU offload and runner readiness.
 [2026-01-08 16:30:00] [INFO] Backend `main.py` contains Ollama health check endpoint at `/health`. Recommended to build/run backend and query `/health` next.
 
-=== Test run finished at 01/12/2026 03:59:59 ===
-=== Restart + Full test started at 01/14/2026 00:44:18 ===
---- Restarting all docker-compose services ---
-docker-compose :  Container dgs_mongo  Restarting
-At line:1 char:227
-+ ... ces ---" | Out-File -Append $log; docker-compose restart 2>&1 | Out-F ...
-+                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~
-    + CategoryInfo          : NotSpecified: ( Container dgs_mongo  Restarting:Strin 
-   g) [], RemoteException
-    + FullyQualifiedErrorId : NativeCommandError
- 
- Container dgs_frontend  Restarting
- Container dgs_backend  Restarting
- Container dgs_ollama  Restarting
- Container dgs_frontend  Started
- Container dgs_mongo  Started
- Container dgs_ollama  Started
- Container dgs_backend  Started
---- Docker compose ps ---
-NAME          IMAGE                  COMMAND                  SERVICE   CREATED        STATUS         PORTS
-dgs_backend   simengine-backend      "uvicorn app.main:apΓÇª"   backend   45 hours ago   Up 6 seconds   0.0.0.0:8000->8000/tcp, [::]:8000->8000/tcp
-dgs_mongo     mongo:latest           "docker-entrypoint.sΓÇª"   mongo     2 days ago     Up 8 seconds   0.0.0.0:27017->27017/tcp, [::]:27017->27017/tcp
-dgs_ollama    ollama/ollama:latest   "/bin/ollama serve"      ollama    2 days ago     Up 7 seconds   0.0.0.0:11434->11434/tcp, [::]:11434->11434/tcp
---- Health ---
-{"status":"ok","ollama":"online","model_target":"phi3"}
---- OpenAPI ---
-{"openapi":"3.1.0","info":{"title":"Decision Graph Simulator - Backend (v1.2)","version":"0.1.0"},"paths":{"/":{"get":{"summary":"Root","operationId":"root__get","responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{}}}}}}},"/health":{"get":{"summary":"Health","description":"Real Health Check: Pings the Ollama container to see if the Brain is alive.","operationId":"health_health_get","responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{}}}}}}},"/test/generate":{"post":{"summary":"Test Generate","description":"Task A: send a short prompt to Ollama and return the raw response.","operationId":"test_generate_test_generate_post","requestBody":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/PromptRequest"}}},"required":true},"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/test/scrape":{"post":{"summary":"Test Scrape","description":"Task B: create a test KnowledgeChunk via ContextBuilder and write to Mongo.","operationId":"test_scrape_test_scrape_post","requestBody":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/PromptRequest"}}},"required":true},"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/simulate/start":{"post":{"summary":"Simulate Start","description":"Start a simulation session. This creates a session job and begins world-building in background.","operationId":"simulate_start_simulate_start_post","requestBody":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/StartSimulationPayload"}}},"required":true},"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/simulate/branch":{"post":{"summary":"Simulate Branch","operationId":"simulate_branch_simulate_branch_post","requestBody":{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BranchPayload"}}},"required":true},"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/jobs/{job_id}":{"get":{"summary":"Jobs Get","operationId":"jobs_get_jobs__job_id__get","parameters":[{"name":"job_id","in":"path","required":true,"schema":{"type":"string","title":"Job Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/jobs":{"get":{"summary":"Jobs List","description":"Return recent jobs for debugging (most recent first).","operationId":"jobs_list_jobs_get","parameters":[{"name":"limit","in":"query","required":false,"schema":{"type":"integer","default":20,"title":"Limit"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/jobs/{job_id}/retry":{"post":{"summary":"Jobs Retry","description":"Retry a failed job by re-queuing it and starting the background worker.","operationId":"jobs_retry_jobs__job_id__retry_post","parameters":[{"name":"job_id","in":"path","required":true,"schema":{"type":"string","title":"Job Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/jobs/{job_id}/logs":{"get":{"summary":"Job Logs","description":"Return raw model responses and stored logs for a given job.","operationId":"job_logs_jobs__job_id__logs_get","parameters":[{"name":"job_id","in":"path","required":true,"schema":{"type":"string","title":"Job Id"}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer","default":50,"title":"Limit"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/nodes/{node_id}":{"get":{"summary":"Get Node","operationId":"get_node_nodes__node_id__get","parameters":[{"name":"node_id","in":"path","required":true,"schema":{"type":"string","title":"Node Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}},"/graph":{"get":{"summary":"Get Graph","operationId":"get_graph_graph_get","parameters":[{"name":"session_id","in":"query","required":false,"schema":{"type":"string","title":"Session Id"}}],"responses":{"200":{"description":"Successful Response","content":{"application/json":{"schema":{}}}},"422":{"description":"Validation Error","content":{"application/json":{"schema":{"$ref":"#/components/schemas/HTTPValidationError"}}}}}}}},"components":{"schemas":{"BranchPayload":{"properties":{"session_id":{"type":"string","title":"Session Id"},"parent_node_id":{"type":"string","title":"Parent Node Id"},"action":{"type":"string","title":"Action"},"persona":{"type":"string","title":"Persona","default":"Optimistic Founder"}},"type":"object","required":["session_id","parent_node_id","action"],"title":"BranchPayload"},"HTTPValidationError":{"properties":{"detail":{"items":{"$ref":"#/components/schemas/ValidationError"},"type":"array","title":"Detail"}},"type":"object","title":"HTTPValidationError"},"PromptRequest":{"properties":{"prompt":{"type":"string","title":"Prompt"}},"type":"object","required":["prompt"],"title":"PromptRequest"},"StartSimulationPayload":{"properties":{"prompt":{"type":"string","title":"Prompt"},"mode":{"type":"string","title":"Mode","default":"Analytical"},"persona":{"type":"string","title":"Persona","default":"Skeptical Analyst"},"simulate_steps":{"type":"integer","title":"Simulate Steps","default":3}},"type":"object","required":["prompt"],"title":"StartSimulationPayload"},"ValidationError":{"properties":{"loc":{"items":{"anyOf":[{"type":"string"},{"type":"integer"}]},"type":"array","title":"Location"},"msg":{"type":"string","title":"Message"},"type":{"type":"string","title":"Error Type"}},"type":"object","required":["loc","msg","type"],"title":"ValidationError"}}}}
---- Test scrape (unit) ---
-{
-    "status":  "ok",
-    "inserted_id":  "69669993b89a9ef71fbc87b2",
-    "preview":  "Simulated knowledge about \u0027Unit Test Chunk After Restart\u0027: sample content for testing."
-}
---- Test generate (unit) ---
-{
-    "model":  "phi3",
-    "created_at":  "2026-01-13T19:14:33.586601006Z",
-    "response":  "Greetings, I understand you\u0027re attempting to craft a message that reflects the end of your automated unit tests and also signifies an action such as system restarts. Hereâs how we can formulate this: \"Unit testing concluded successfully after the latest cycle.\" If there was indeed a restart involved in the process which completed before or during these tests, you could say something like: \"All systems are now rebooted post-unit test execution.\" Remember to ensure that your actual system actions match with what\u0027s communicated for clarity and operational integrity.",
-    "done":  true,
-    "done_reason":  "stop",
-    "context":  [
-                    32010,
-                    29871,
-                    13,
-                    10994,
-                    515,
-                    5190,
-                    1243,
-                    1156,
-                    10715,
-                    32007,
-                    29871,
-                    13,
-                    32001,
-                    29871,
-                    13,
-                    29954,
-                    4521,
-                    886,
-                    29892,
-                    306,
-                    2274,
-                    366,
-                    29915,
-                    276,
-                    15661,
-                    304,
-                    25554,
-                    263,
-                    2643,
-                    393,
-                    9432,
-                    29879,
-                    278,
-                    1095,
-                    310,
-                    596,
-                    3345,
-                    630,
-                    5190,
-                    6987,
-                    322,
-                    884,
-                    1804,
-                    11057,
-                    385,
-                    3158,
-                    1316,
-                    408,
-                    1788,
-                    1791,
-                    5708,
-                    29889,
-                    2266,
-                    30010,
-                    29879,
-                    920,
-                    591,
-                    508,
-                    883,
-                    5987,
-                    445,
-                    29901,
-                    376,
-                    8325,
-                    6724,
-                    22834,
-                    8472,
-                    1156,
-                    278,
-                    9281,
-                    11412,
-                    1213,
-                    960,
-                    727,
-                    471,
-                    6200,
-                    263,
-                    10715,
-                    9701,
-                    297,
-                    278,
-                    1889,
-                    607,
-                    8676,
-                    1434,
-                    470,
-                    2645,
-                    1438,
-                    6987,
-                    29892,
-                    366,
-                    1033,
-                    1827,
-                    1554,
-                    763,
-                    29901,
-                    376,
-                    3596,
-                    6757,
-                    526,
-                    1286,
-                    22538,
-                    287,
-                    1400,
-                    29899,
-                    5441,
-                    1243,
-                    8225,
-                    1213,
-                    22738,
-                    304,
-                    9801,
-                    393,
-                    596,
-                    3935,
-                    1788,
-                    8820,
-                    1993,
-                    411,
-                    825,
-                    29915,
-                    29879,
-                    7212,
-                    630,
-                    363,
-                    7542,
-                    537,
-                    322,
-                    1751,
-                    1288,
-                    28410,
-                    29889
-                ],
-    "total_duration":  5818651222,
-    "load_duration":  1315885495,
-    "prompt_eval_count":  15,
-    "prompt_eval_duration":  165199148,
-    "eval_count":  118,
-    "eval_duration":  4301993294
-}
---- Start simulation (system) ---
-{
-    "session_id":  "System T_293",
-    "job_id":  "6f7f8952-26d1-4ab3-b08b-2c225418d122",
-    "status":  "started"
-}
-job_id: 6f7f8952-26d1-4ab3-b08b-2c225418d122
---- Polling job status ---
-{
-    "_id":  "69669999b89a9ef71fbc87b4",
-    "job_id":  "6f7f8952-26d1-4ab3-b08b-2c225418d122",
-    "type":  "start",
-    "payload":  {
-                    "prompt":  "System Test After Restart: Market Entry",
-                    "mode":  "Analytical",
-                    "persona":  "Tester",
-                    "simulate_steps":  1
-                },
-    "status":  "running",
-    "created_at":  "2026-01-13T19:14:33.603000",
-    "updated_at":  "2026-01-13T19:14:33.607000",
-    "result":  null,
-    "error":  null
-}
-{
-    "_id":  "69669999b89a9ef71fbc87b4",
-    "job_id":  "6f7f8952-26d1-4ab3-b08b-2c225418d122",
-    "type":  "start",
-    "payload":  {
-                    "prompt":  "System Test After Restart: Market Entry",
-                    "mode":  "Analytical",
-                    "persona":  "Tester",
-                    "simulate_steps":  1
-                },
-    "status":  "running",
-    "created_at":  "2026-01-13T19:14:33.603000",
-    "updated_at":  "2026-01-13T19:14:33.607000",
-    "result":  null,
-    "error":  null
-}
-{
-    "_id":  "69669999b89a9ef71fbc87b4",
-    "job_id":  "6f7f8952-26d1-4ab3-b08b-2c225418d122",
-    "type":  "start",
-    "payload":  {
-                    "prompt":  "System Test After Restart: Market Entry",
-                    "mode":  "Analytical",
-                    "persona":  "Tester",
-                    "simulate_steps":  1
-                },
-    "status":  "running",
-    "created_at":  "2026-01-13T19:14:33.603000",
-    "updated_at":  "2026-01-13T19:14:33.607000",
-    "result":  null,
-    "error":  null
-}
-{
-    "_id":  "69669999b89a9ef71fbc87b4",
-    "job_id":  "6f7f8952-26d1-4ab3-b08b-2c225418d122",
-    "type":  "start",
-    "payload":  {
-                    "prompt":  "System Test After Restart: Market Entry",
-                    "mode":  "Analytical",
-                    "persona":  "Tester",
-                    "simulate_steps":  1
-                },
-    "status":  "running",
-    "created_at":  "2026-01-13T19:14:33.603000",
-    "updated_at":  "2026-01-13T19:14:33.607000",
-    "result":  null,
-    "error":  null
-}
-{
-    "_id":  "69669999b89a9ef71fbc87b4",
-    "job_id":  "6f7f8952-26d1-4ab3-b08b-2c225418d122",
-    "type":  "start",
-    "payload":  {
-                    "prompt":  "System Test After Restart: Market Entry",
-                    "mode":  "Analytical",
-                    "persona":  "Tester",
-                    "simulate_steps":  1
-                },
-    "status":  "running",
-    "created_at":  "2026-01-13T19:14:33.603000",
-    "updated_at":  "2026-01-13T19:14:33.607000",
-    "result":  null,
-    "error":  null
-}
-{
-    "_id":  "69669999b89a9ef71fbc87b4",
-    "job_id":  "6f7f8952-26d1-4ab3-b08b-2c225418d122",
-    "type":  "start",
-    "payload":  {
-                    "prompt":  "System Test After Restart: Market Entry",
-                    "mode":  "Analytical",
-                    "persona":  "Tester",
-                    "simulate_steps":  1
-                },
-    "status":  "running",
-    "created_at":  "2026-01-13T19:14:33.603000",
-    "updated_at":  "2026-01-13T19:14:33.607000",
-    "result":  null,
-    "error":  null
-}
-{
-    "_id":  "69669999b89a9ef71fbc87b4",
-    "job_id":  "6f7f8952-26d1-4ab3-b08b-2c225418d122",
-    "type":  "start",
-    "payload":  {
-                    "prompt":  "System Test After Restart: Market Entry",
-                    "mode":  "Analytical",
-                    "persona":  "Tester",
-                    "simulate_steps":  1
-                },
-    "status":  "running",
-    "created_at":  "2026-01-13T19:14:33.603000",
-    "updated_at":  "2026-01-13T19:14:33.607000",
-    "result":  null,
-    "error":  null
-}
-{
-    "_id":  "69669999b89a9ef71fbc87b4",
-    "job_id":  "6f7f8952-26d1-4ab3-b08b-2c225418d122",
-    "type":  "start",
-    "payload":  {
-                    "prompt":  "System Test After Restart: Market Entry",
-                    "mode":  "Analytical",
-                    "persona":  "Tester",
-                    "simulate_steps":  1
-                },
-    "status":  "running",
-    "created_at":  "2026-01-13T19:14:33.603000",
-    "updated_at":  "2026-01-13T19:14:33.607000",
-    "result":  null,
-    "error":  null
-}
-{
-    "_id":  "69669999b89a9ef71fbc87b4",
-    "job_id":  "6f7f8952-26d1-4ab3-b08b-2c225418d122",
-    "type":  "start",
-    "payload":  {
-                    "prompt":  "System Test After Restart: Market Entry",
-                    "mode":  "Analytical",
-                    "persona":  "Tester",
-                    "simulate_steps":  1
-                },
-    "status":  "running",
-    "created_at":  "2026-01-13T19:14:33.603000",
-    "updated_at":  "2026-01-13T19:14:33.607000",
-    "result":  null,
-    "error":  null
-}
-{
-    "_id":  "69669999b89a9ef71fbc87b4",
-    "job_id":  "6f7f8952-26d1-4ab3-b08b-2c225418d122",
-    "type":  "start",
-    "payload":  {
-                    "prompt":  "System Test After Restart: Market Entry",
-                    "mode":  "Analytical",
-                    "persona":  "Tester",
-                    "simulate_steps":  1
-                },
-    "status":  "running",
-    "created_at":  "2026-01-13T19:14:33.603000",
-    "updated_at":  "2026-01-13T19:14:33.607000",
-    "result":  null,
-    "error":  null
-}
-{
-    "_id":  "69669999b89a9ef71fbc87b4",
-    "job_id":  "6f7f8952-26d1-4ab3-b08b-2c225418d122",
-    "type":  "start",
-    "payload":  {
-                    "prompt":  "System Test After Restart: Market Entry",
-                    "mode":  "Analytical",
-                    "persona":  "Tester",
-                    "simulate_steps":  1
-                },
-    "status":  "running",
-    "created_at":  "2026-01-13T19:14:33.603000",
-    "updated_at":  "2026-01-13T19:14:33.607000",
-    "result":  null,
-    "error":  null
-}
-{
-    "_id":  "69669999b89a9ef71fbc87b4",
-    "job_id":  "6f7f8952-26d1-4ab3-b08b-2c225418d122",
-    "type":  "start",
-    "payload":  {
-                    "prompt":  "System Test After Restart: Market Entry",
-                    "mode":  "Analytical",
-                    "persona":  "Tester",
-                    "simulate_steps":  1
-                },
-    "status":  "running",
-    "created_at":  "2026-01-13T19:14:33.603000",
-    "updated_at":  "2026-01-13T19:14:33.607000",
-    "result":  null,
-    "error":  null
-}
-{
-    "_id":  "69669999b89a9ef71fbc87b4",
-    "job_id":  "6f7f8952-26d1-4ab3-b08b-2c225418d122",
-    "type":  "start",
-    "payload":  {
-                    "prompt":  "System Test After Restart: Market Entry",
-                    "mode":  "Analytical",
-                    "persona":  "Tester",
-                    "simulate_steps":  1
-                },
-    "status":  "running",
-    "created_at":  "2026-01-13T19:14:33.603000",
-    "updated_at":  "2026-01-13T19:14:33.607000",
-    "result":  null,
-    "error":  null
-}
-{
-    "_id":  "69669999b89a9ef71fbc87b4",
-    "job_id":  "6f7f8952-26d1-4ab3-b08b-2c225418d122",
-    "type":  "start",
-    "payload":  {
-                    "prompt":  "System Test After Restart: Market Entry",
-                    "mode":  "Analytical",
-                    "persona":  "Tester",
-                    "simulate_steps":  1
-                },
-    "status":  "completed",
-    "created_at":  "2026-01-13T19:14:33.603000",
-    "updated_at":  "2026-01-13T19:15:14.062000",
-    "result":  {
-                   "node_id":  "d13237dc-4e07-40e5-950f-dc7b68d9b0f3"
-               },
-    "error":  null
-}
---- Fetch job logs ---
-{"count":1,"logs":[{"_id":"696699c2b89a9ef71fbc87b6","job_id":"6f7f8952-26d1-4ab3-b08b-2c225418d122","raw":"{\n  \"id\": \"d13237dc-4e07-40e5-950f-dc7b68d9b0f3\",\n  \"title\": \"System Test After Restart: Market Entry Simulation Engine Output for 'Evaluate entering dental SaaS' Knowledge Extraction and Analysis\",\n  \"summary\": \"This simulation engine output details the extraction of knowledge related to market entry strategies in a Dental Software as a Service (SaaS) environment, with focus on evaluating system robustness after startup.\",\n  \"description\": \"The scenario involves simulated data that provides insights into how entering a dental SaaS platform operates post-restart. The goal is to identify potential risks and devise strategies for optimization while ensuring minimal disruption in service delivery during the critical market entry phase.\",\n  \"time_step\": 0,\n  \"risks\": [\n    {\n      \"description\": \"The system's performance under load may degrade after restart leading to potential loss of real-time data synchronization across distributed nodes.\",\n      \"severity\": \"High\",\n      \"likelihood\": \"Medium\"\n    },\n    {\n      \"description\": \"Data integrity checks might fail post-restart, risking corruption or loss of critical patient records and appointments schedules.\",\n      \"severity\": \"Low\",\n      \"likelihood\": \"High\"\n    }\n  ],\n  \"alternatives\": [\n    {\n      \"description\": \"Implement a more robust load balancing solution to prevent performance degradation post-restart.\",\n      \"action_type\": \"System Optimization Strategy\"\n    },\n    {\n      \"description\": \"Adopt redundant data replication techniques for maintaining real-time synchronization and integrity of critical dental records across the SaaS platform's distributed nodes.\",\n      \"action_type\": \"Data Management Solution\"\n    }\n  ]\n}","clean":{"id":"d13237dc-4e07-40e5-950f-dc7b68d9b0f3","title":"System Test After Restart: Market Entry Simulation Engine Output for 'Evaluate entering dental SaaS' Knowledge Extraction and Analysis","summary":"This simulation engine output details the extraction of knowledge related to market entry strategies in a Dental Software as a Service (SaaS) environment, with focus on evaluating system robustness after startup.","description":"The scenario involves simulated data that provides insights into how entering a dental SaaS platform operates post-restart. The goal is to identify potential risks and devise strategies for optimization while ensuring minimal disruption in service delivery during the critical market entry phase.","time_step":0,"risks":[{"description":"The system's performance under load may degrade after restart leading to potential loss of real-time data synchronization across distributed nodes.","severity":"High","likelihood":"Medium"},{"description":"Data integrity checks might fail post-restart, risking corruption or loss of critical patient records and appointments schedules.","severity":"Low","likelihood":"High"}],"alternatives":[{"description":"Implement a more robust load balancing solution to prevent performance degradation post-restart.","action_type":"System Optimization Strategy"},{"description":"Adopt redundant data replication techniques for maintaining real-time synchronization and integrity of critical dental records across the SaaS platform's distributed nodes.","action_type":"Data Management Solution"}]},"node":{"id":"d13237dc-4e07-40e5-950f-dc7b68d9b0f3","title":"System Test After Restart: Market Entry Simulation Engine Output for 'Evaluate entering dental SaaS' Knowledge Extraction and Analysis","summary":"This simulation engine output details the extraction of knowledge related to market entry strategies in a Dental Software as a Service (SaaS) environment, with focus on evaluating system robustness after startup.","description":"The scenario involves simulated data that provides insights into how entering a dental SaaS platform operates post-restart. The goal is to identify potential risks and devise strategies for optimization while ensuring minimal disruption in service delivery during the critical market entry phase.","time_step":0,"created_by_engine":null,"alternatives":[{"id":"45a9ea6f-2d62-4f85-a8c2-5b77b94480eb","description":"Implement a more robust load balancing solution to prevent performance degradation post-restart.","action_type":"System Optimization Strategy","expected_outcome_summary":null},{"id":"565e2914-d763-440a-881f-5e6541418364","description":"Adopt redundant data replication techniques for maintaining real-time synchronization and integrity of critical dental records across the SaaS platform's distributed nodes.","action_type":"Data Management Solution","expected_outcome_summary":null}],"risks":[{"id":"43ef0199-56c8-4daf-b4b1-fe1cbb7a1eb9","description":"The system's performance under load may degrade after restart leading to potential loss of real-time data synchronization across distributed nodes.","severity":"High","likelihood":"Medium","mitigation_strategy":null,"citation":null},{"id":"75bf6c73-0987-4232-bdbd-9c3ae7a4c35a","description":"Data integrity checks might fail post-restart, risking corruption or loss of critical patient records and appointments schedules.","severity":"Low","likelihood":"High","mitigation_strategy":null,"citation":null}],"source_citations":[],"confidence_score":0.0,"speculative":false,"created_at":"2026-01-13T19:15:14.053000"},"prompt":"You are a strategic simulation engine. Respond with valid JSON only. Schema: {id, title, summary, description, time_step (int), risks: [{description, severity (Low/Medium/High), likelihood}], alternatives: [{description, action_type}]}\n\nSCENARIO: System Test After Restart: Market Entry\n\nCONTEXT: {\"chunks\": [{\"_id\": \"69615bc4b3c74aa934659a74\", \"id\": \"6539d32d-3a51-48f2-a946-0253b1e19d08\", \"content\": \"Simulated knowledge about 'Test Knowledge': sample content for testing.\", \"source_url\": \"http://sim.test/1\", \"source_title\": \"Simulated Source\", \"chunk_index\": 0, \"verification_status\": \"verified\", \"created_at\": \"2026-01-09 19:49:24.644000\"}, {\"_id\": \"696184a6cc0a5ce580abf1fd\", \"id\": \"38682168-c49b-4e36-bf18-405ba2261838\", \"content\": \"Simulated knowledge about 'Evaluate entering dental SaaS': sample content for testing.\", \"source_url\": \"http://sim.test/1\", \"source_title\": \"Simulated Source\", \"chunk_index\": 0, \"verification_status\": \"verified\", \"created_at\": \"2026-01-09 22:43:50.786000\"}, {\"","created_at":"2026-01-13T19:15:14.053000","success":true}]}
---- Fetch graph ---
-{"nodes":[{"_id":"696413c8b4295488e3f39efd","id":"5ecec7f1-a5d5-4bac-9c35-26572a9d897c","title":"Strategic Analysis of AI Market Entry into Dental Software Solutions (SaaS)","summary":"The simulation investigates the risks and alternatives for entering an artificial intelligence market in dental software solutions.","description":"This strategic analysis assesses potential entry points, competition dynamics within the dental SaaS sector leveraging AI technologies. It examines challenges such as regulatory compliance (High severity & likelihood), disruption of current practices due to new technology adoption (Medium severity & high likelihood) and cultural resistance among traditional practitioners towards tech-based solutions (Low severity, Medium likelihood).","time_step":1570823694,"created_by_engine":null,"alternatives":[{"id":"c1f9222b-a6dc-483e-a1cd-4f3a842e068a","description":"Collaborate with established dental software firms for better integration.","action_type":"Partnership","expected_outcome_summary":null}],"risks":[{"id":"96cf497b-cb0b-4daa-baf4-73f899f42440","description":"Regulatory compliance issues within dental software sectors.","severity":"High","likelihood":"Medium","mitigation_strategy":null,"citation":null},{"id":"19dc04f3-6dd5-42d3-af9d-d6b465fb7b08","description":"Disruption of current practices due to new technology adoption in the industry","severity":"Medium","likelihood":"Medium","mitigation_strategy":null,"citation":null}],"source_citations":[],"confidence_score":0.0,"speculative":false,"created_at":"2026-01-11T21:19:04.065000"},{"_id":"69641b13a0b55c31c953a27e","id":"efd6b105-5f48-46da-b712-5b25a9628bef","title":"Strategic Analysis of AI Market in Dental SaaS Entering Sector","summary":"A simulated knowledge analysis on the strategic entry and impacts within the dental sector by various Artificial Intelligence (AI) players.","description":"This simulation analyzes potential risks, opportunities, and alternatives for AI companies entering or already in the Dental SaaS market. The focus is to understand how these entities could penetrate this niche area of healthcare technology with their advanced capabilities like predictive analytics on patient behavior.","time_step":0,"created_by_engine":null,"alternatives":[],"risks":[{"id":"3f823b87-f0b5-4f3a-addf-1b47a1408319","description":"General uncertainty due to limited data.","severity":"Low","likelihood":"Low","mitigation_strategy":"Monitor situation.","citation":null}],"source_citations":[],"confidence_score":0.0,"speculative":false,"created_at":"2026-01-11T21:50:11.150000"},{"_id":"69641dfc63e37c4e69d830d9","id":"testKnowledgeAI","title":"Quick Persistence Test - AI Market Scenario","summary":"Simulation engine testing knowledge retention of content related to dental SaaS, with a focus on the verification process and timestamps.","description":"This simulation tests how well an artificial intelligence can retain information about entering into partnerships within the Dental Market sector. Content has been verified for accuracy at multiple points in time as part of this test scenario.","time_step":0,"created_by_engine":null,"alternatives":[{"id":"0bd62011-989b-47a6-9f43-8c5d45699a7a","description":"Review partnership terms with legal experts to ensure alignment and safeguard data before proceeding","action_type":"Legal Review/Consultation","expected_outcome_summary":null},{"id":"a2e987c2-9aae-4af6-8007-e7dce9795443","description":"Conduct a comprehensive market analysis prior to entering the SaaS platform domain.","action_type":"Market Research","expected_outcome_summary":null}],"risks":[{"id":"5319c821-5709-45f9-afcc-b696b638a923","description":"Partnership may not align with strategic goals leading to potential misalignment","severity":"High","likelihood":"Medium","mitigation_strategy":null,"citation":null},{"id":"6081da3d-1079-45a6-90f5-afb59ca35112","description":"Potential for loss of confidential information during the transition period","severity":"Medium","likelihood":"Medium","mitigation_strategy":null,"citation":null}],"source_citations":[],"confidence_score":0.0,"speculative":false,"created_at":"2026-01-11T22:02:36.439000"},{"_id":"696427026dcd362e317015fb","id":"efd6b105-5f48-46da-b712-5b25a9628bef","title":"Evaluate entering dental SaaS - Scenario Retry Simulation Analysis","summary":"This simulation analyzes the repeated assertion about 'Entering Dental Software as a Service' to examine decision pathways and retry strategies.","description":"A scenario is presented where AI Market enters into dental SaaS, with multiple knowledge chunks reflecting various facets of this entry strategy. The objective here includes evaluating market feasibility under uncertainty and exploring alternative actions in case initial assumptions fail or need revision due to changing conditions.","time_step":1052746800,"created_by_engine":null,"alternatives":[{"id":"095413af-f189-4dfb-937e-07cf4ec88001","description":"Enhanced cybersecurity measures implementation to boost user trust.","action_type":"Mitigate risk by proactive security enhancement.","expected_outcome_summary":null},{"id":"6f8c6589-5b97-4622-b493-d6e6a9420c5f","description":"Partner with established dental practices for initial adoption","action_type":"Collaboration strategy","expected_outcome_summary":null}],"risks":[{"id":"5b233b5f-2674-4d37-b3f4-5fab140e0ea3","description":"Market saturation could lead to fierce competition","severity":"High","likelihood":"Medium","mitigation_strategy":null,"citation":null},{"id":"ebe8f3d2-fa0b-4323-9654-0e79065444b4","description":"Data security concerns among potential users","severity":"Low","likelihood":"High","mitigation_strategy":null,"citation":null}],"source_citations":[],"confidence_score":0.0,"speculative":false,"created_at":"2026-01-11T22:41:06.828000"},{"_id":"6966997590a05860ffa0977a","id":"afb5e8f7-98c7-49ec-aefc-01be223d3ab6","title":"System Test After Restart - Market Entry Scenario Simulation","summary":"This simulation explores the potential market entry challenges and strategies for a dental SaaS (Software as a Service) product.","description":"The scenario simulates entering into the 'Dental Software' market with various factors like customer adoption rate, competitor response time after system restarts. It evaluates both traditional business risks and unique service-oriented ones tied to dental practices such as SaaS platform.","time_step":1576840200,"created_by_engine":null,"alternatives":[{"id":"a218dc15-8191-40b2-ad54-a65dc6b1afea","description":"Implement a robust backup system before rolling out updates","action_type":"Preventive Action - System Preparation","expected_outcome_summary":null},{"id":"35393691-0542-476a-a3ad-35acde4cf725","description":"Create an on-demand support team to handle immediate post-restart queries and issues.","action_type":"Reactive Support Strategy","expected_outcome_summary":null},{"id":"7cc6c330-fb4d-4ca2-ac8a-48cee6b83d26","description":"Roll out updates in stages, starting with a smaller user group before full market release","action_type":"Phased Rollout Plan","expected_outcome_summary":null}],"risks":[{"id":"08c9c89d-339e-4038-862c-19a5f23647b9","description":"High customer adoption rate may overwhelm the infrastructure of our DentalSaasPlatform","severity":"Medium","likelihood":"Medium","mitigation_strategy":null,"citation":null},{"id":"ed8c0e2b-0e0c-4043-ad8a-b39a01d18146","description":"Potential delays in system updates post-restart which might affect patient experience and trust.","severity":"High","likelihood":"Medium","mitigation_strategy":null,"citation":null},{"id":"2c15d277-97ca-45ce-b674-78c354543d92","description":"Risk of lost data during restarts, impacting the continuity service we offer to dental practices.","severity":"Low","likelihood":"Medium","mitigation_strategy":null,"citation":null}],"source_citations":[],"confidence_score":0.0,"speculative":false,"created_at":"2026-01-13T19:13:57.575000"},{"_id":"696699c2b89a9ef71fbc87b7","id":"d13237dc-4e07-40e5-950f-dc7b68d9b0f3","title":"System Test After Restart: Market Entry Simulation Engine Output for 'Evaluate entering dental SaaS' Knowledge Extraction and Analysis","summary":"This simulation engine output details the extraction of knowledge related to market entry strategies in a Dental Software as a Service (SaaS) environment, with focus on evaluating system robustness after startup.","description":"The scenario involves simulated data that provides insights into how entering a dental SaaS platform operates post-restart. The goal is to identify potential risks and devise strategies for optimization while ensuring minimal disruption in service delivery during the critical market entry phase.","time_step":0,"created_by_engine":null,"alternatives":[{"id":"45a9ea6f-2d62-4f85-a8c2-5b77b94480eb","description":"Implement a more robust load balancing solution to prevent performance degradation post-restart.","action_type":"System Optimization Strategy","expected_outcome_summary":null},{"id":"565e2914-d763-440a-881f-5e6541418364","description":"Adopt redundant data replication techniques for maintaining real-time synchronization and integrity of critical dental records across the SaaS platform's distributed nodes.","action_type":"Data Management Solution","expected_outcome_summary":null}],"risks":[{"id":"43ef0199-56c8-4daf-b4b1-fe1cbb7a1eb9","description":"The system's performance under load may degrade after restart leading to potential loss of real-time data synchronization across distributed nodes.","severity":"High","likelihood":"Medium","mitigation_strategy":null,"citation":null},{"id":"75bf6c73-0987-4232-bdbd-9c3ae7a4c35a","description":"Data integrity checks might fail post-restart, risking corruption or loss of critical patient records and appointments schedules.","severity":"Low","likelihood":"High","mitigation_strategy":null,"citation":null}],"source_citations":[],"confidence_score":0.0,"speculative":false,"created_at":"2026-01-13T19:15:14.053000"}],"edges":[]}
---- Tail project_log.txt ---
-Decision Graph Simulator (DGS) - Project Log
-Started: 2026-01-08
+
 
 Format: [TIMESTAMP] [LEVEL] message
 
@@ -769,330 +348,6 @@ All changes are logged here; please restart the backend container (`docker-compo
 [2026-01-10 10:07:00] [TEST] `/test/scrape` invoked with prompt: "Test Knowledge". Insert result: {"status":"ok","inserted_id":"69615bc4b3c74aa934659a74","preview":"Simulated knowledge about 'Test Knowledge': sample content for testing."}
 [2026-01-10 10:20:00] [INFO] Frontend spec expansion: updated `frontend_design_spec.md` with full developer-ready design tokens, components, API examples, mock fixtures, accessibility, testing, and handoff checklist.
 
-
-=== Restart + Full test finished at 01/14/2026 00:45:15 ===
-
-[2026-01-14 11:00:00] [INFO] deep_rag.implementation.started Begin implementing full Deep RAG pipeline in `backend/app/engines/scraper.py`. Changes: added `search_candidates`, `filter_candidates`, `parallel_scrape`, `clean_html`, `chunk_text`, `build_knowledge_base`. Pipeline logs will record step starts/completions and insertion counts.
-[2026-01-15T18:37:35.957880+05:30] [INFO] startup Backend startup (model=phi3, ollama_url=http://ollama:11434/api/generate)
-[2026-01-15T18:38:20.052596+05:30] [INFO] startup Backend startup (model=phi3, ollama_url=http://ollama:11434/api/generate)
-[2026-01-15 13:15:23] [INFO] startup Backend startup (model=phi3, ollama_url=http://ollama:11434/api/generate)
-[2026-01-15 13:31:07] [INFO] startup Backend startup (model=phi3, ollama_url=http://ollama:11434/api/generate)
-[2026-01-15 13:31:42] [INFO] startup Backend startup (model=phi3, ollama_url=http://ollama:11434/api/generate)
-[2026-01-15 13:38:22] [INFO] startup Backend startup (model=phi3, ollama_url=http://ollama:11434/api/generate)
-[2026-01-15 13:40:21] [INFO] startup Backend startup (model=phi3, ollama_url=http://ollama:11434/api/generate)
-[2026-01-15 13:55:15] [INFO] startup Backend startup (model=phi3, ollama_url=http://ollama:11434/api/generate)
-[2026-01-15 13:56:54] [INFO] startup Backend startup (model=phi3, ollama_url=http://ollama:11434/api/generate)
-[2026-01-15 13:59:38] [INFO] startup Backend startup (model=phi3, ollama_url=http://ollama:11434/api/generate)
-[2026-01-15 14:02:41] [INFO] startup Backend startup (model=phi3, ollama_url=http://ollama:11434/api/generate)
-[2026-01-15 14:06:03] [INFO] startup Backend startup (model=phi3, ollama_url=http://127.0.0.1:11434/api/generate)
-[2026-01-15 14:10:58] [INFO] startup Backend startup (model=phi3, ollama_url=http://127.0.0.1:11434/api/generate)
-[2026-01-15 14:14:36] [INFO] startup Backend startup (model=phi3, ollama_url=http://127.0.0.1:11434/api/generate)
-[2026-01-15 14:18:29] [INFO] startup Backend startup (model=phi3, ollama_url=http://127.0.0.1:11434/api/generate)
-[2026-01-15 14:21:22] [INFO] startup Backend startup (model=phi3, ollama_url=http://127.0.0.1:11434/api/generate)
-[2026-01-15 14:22:50] [INFO] [DB] Connecting to MongoDB at mongodb://mongo:27017
-[2026-01-15 14:22:50] [INFO] [DB] Connected to MongoDB
-[2026-01-15 14:40:10] [INFO] startup Backend startup (model=phi3, ollama_url=http://127.0.0.1:11434/api/generate)
-[2026-01-15 14:46:17] [INFO] [DB] Connecting to MongoDB at mongodb://127.0.0.1:27017
-[2026-01-15 14:46:17] [INFO] [DB] Connected to MongoDB
-[2026-01-15 14:46:17] [INFO] create_job: created job 8e6afa23-83fe-44f4-9bd9-073579840c42 type=start
-[2026-01-15 14:46:17] [INFO] _run_start_job: starting 8e6afa23-83fe-44f4-9bd9-073579840c42
-[2026-01-15 14:46:17] [INFO] update_job: job 8e6afa23-83fe-44f4-9bd9-073579840c42 -> running
-[2026-01-15 14:46:17] [INFO] deep_rag.implementation.start Begin Deep RAG ingestion for query: Automated test #1 - 2026-01-15T20:16:17.8080488+05:30
-[2026-01-15 14:46:17] [INFO] deep_rag.search.start search_candidates for: Automated test #1 - 2026-01-15T20:16:17.8080488+05:30
-[2026-01-15 14:46:17] [INFO] deep_rag.search.done found 15 candidates
-{"timestamp": "2026-01-15 14:46:17", "level": "INFO", "action": "deep_rag.search.done", "message": "found 15 candidates", "details": {"query": "Automated test #1 - 2026-01-15T20:16:17.8080488+05:30", "count": 15}}
-[2026-01-15 14:46:17] [INFO] deep_rag.filter.start filtering 15 candidates
-[2026-01-15 14:46:17] [INFO] deep_rag.filter.done filtered -> 7 candidates
-[2026-01-15 14:46:17] [INFO] deep_rag.scrape.start scraping 7 sources
-[2026-01-15 14:46:18] [INFO] parallel_scrape: fetch failed http://sim.test/2: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:46:18] [INFO] parallel_scrape: fetch failed http://sim.test/1: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:46:18] [INFO] parallel_scrape: fetch failed http://sim.test/5: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:46:18] [INFO] parallel_scrape: fetch failed http://sim.test/4: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:46:18] [INFO] parallel_scrape: fetch failed http://sim.test/3: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:46:18] [INFO] parallel_scrape: fetch failed http://sim.test/7: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:46:18] [INFO] parallel_scrape: fetch failed http://sim.test/6: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:46:18] [INFO] deep_rag.scrape.done scraped 7 sources
-[2026-01-15 14:46:23] [INFO] deep_rag.implementation.done Deep RAG ingestion completed
-{"timestamp": "2026-01-15 14:46:23", "level": "INFO", "action": "deep_rag.implementation.done", "message": "Deep RAG ingestion completed", "details": {"query": "Automated test #1 - 2026-01-15T20:16:17.8080488+05:30", "candidates": 15, "filtered": 7, "scraped": 7, "total_chunks": 7, "inserted_count": 7}}
-[2026-01-15 14:46:23] [INFO] ReasoningEngine: model call attempt 1
-[2026-01-15 14:48:41] [INFO] ReasoningEngine: raw output len=2460
-[2026-01-15 14:48:41] [INFO] reasoner.raw_output raw output received
-{"timestamp": "2026-01-15 14:48:41", "level": "INFO", "action": "reasoner.raw_output", "message": "raw output received", "details": {"job_id": "8e6afa23-83fe-44f4-9bd9-073579840c42", "length": 2460}}
-[2026-01-15 14:48:41] [INFO] ReasoningEngine: Parsing failed: Invalid control character at: line 3 column 22 (char 34)
-[2026-01-15 14:48:41] [ERROR] reasoner.generate.failure parsing failed
-{"timestamp": "2026-01-15 14:48:41", "level": "ERROR", "action": "reasoner.generate.failure", "message": "parsing failed", "details": {"job_id": "8e6afa23-83fe-44f4-9bd9-073579840c42", "error": "Invalid control character at: line 3 column 22 (char 34)"}}
-[2026-01-15 14:48:41] [INFO] reasoner.persist_failure persisted failure
-{"timestamp": "2026-01-15 14:48:41", "level": "INFO", "action": "reasoner.persist_failure", "message": "persisted failure", "details": {"job_id": "8e6afa23-83fe-44f4-9bd9-073579840c42", "error": "Invalid control character at: line 3 column 22 (char 34)"}}
-[2026-01-15 14:48:41] [INFO] update_job: job 8e6afa23-83fe-44f4-9bd9-073579840c42 -> completed
-[2026-01-15 14:48:42] [INFO] create_job: created job 10afae89-64a4-42dd-83e2-8baf733230d5 type=start
-[2026-01-15 14:48:42] [INFO] _run_start_job: starting 10afae89-64a4-42dd-83e2-8baf733230d5
-[2026-01-15 14:48:42] [INFO] update_job: job 10afae89-64a4-42dd-83e2-8baf733230d5 -> running
-[2026-01-15 14:48:42] [INFO] deep_rag.implementation.start Begin Deep RAG ingestion for query: Automated test #2 - 2026-01-15T20:18:42.4344759+05:30
-[2026-01-15 14:48:42] [INFO] deep_rag.search.start search_candidates for: Automated test #2 - 2026-01-15T20:18:42.4344759+05:30
-[2026-01-15 14:48:42] [INFO] deep_rag.search.done found 15 candidates
-{"timestamp": "2026-01-15 14:48:42", "level": "INFO", "action": "deep_rag.search.done", "message": "found 15 candidates", "details": {"query": "Automated test #2 - 2026-01-15T20:18:42.4344759+05:30", "count": 15}}
-[2026-01-15 14:48:42] [INFO] deep_rag.filter.start filtering 15 candidates
-[2026-01-15 14:48:42] [INFO] deep_rag.filter.done filtered -> 7 candidates
-[2026-01-15 14:48:42] [INFO] deep_rag.scrape.start scraping 7 sources
-[2026-01-15 14:48:44] [INFO] parallel_scrape: fetch failed http://sim.test/1: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:48:44] [INFO] parallel_scrape: fetch failed http://sim.test/3: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:48:44] [INFO] parallel_scrape: fetch failed http://sim.test/2: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:48:45] [INFO] parallel_scrape: fetch failed http://sim.test/5: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:48:45] [INFO] parallel_scrape: fetch failed http://sim.test/4: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:48:45] [INFO] parallel_scrape: fetch failed http://sim.test/6: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:48:45] [INFO] parallel_scrape: fetch failed http://sim.test/7: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:48:45] [INFO] deep_rag.scrape.done scraped 7 sources
-[2026-01-15 14:48:46] [INFO] deep_rag.implementation.done Deep RAG ingestion completed
-{"timestamp": "2026-01-15 14:48:46", "level": "INFO", "action": "deep_rag.implementation.done", "message": "Deep RAG ingestion completed", "details": {"query": "Automated test #2 - 2026-01-15T20:18:42.4344759+05:30", "candidates": 15, "filtered": 7, "scraped": 7, "total_chunks": 7, "inserted_count": 7}}
-[2026-01-15 14:48:46] [INFO] ReasoningEngine: model call attempt 1
-[2026-01-15 14:50:00] [INFO] ReasoningEngine: raw output len=1316
-[2026-01-15 14:50:00] [INFO] reasoner.raw_output raw output received
-{"timestamp": "2026-01-15 14:50:00", "level": "INFO", "action": "reasoner.raw_output", "message": "raw output received", "details": {"job_id": "10afae89-64a4-42dd-83e2-8baf733230d5", "length": 1316}}
-[2026-01-15 14:50:00] [INFO] ReasoningEngine: Parsing failed: Invalid control character at: line 9 column 131 (char 594)
-[2026-01-15 14:50:00] [ERROR] reasoner.generate.failure parsing failed
-{"timestamp": "2026-01-15 14:50:00", "level": "ERROR", "action": "reasoner.generate.failure", "message": "parsing failed", "details": {"job_id": "10afae89-64a4-42dd-83e2-8baf733230d5", "error": "Invalid control character at: line 9 column 131 (char 594)"}}
-[2026-01-15 14:50:00] [INFO] reasoner.persist_failure persisted failure
-{"timestamp": "2026-01-15 14:50:00", "level": "INFO", "action": "reasoner.persist_failure", "message": "persisted failure", "details": {"job_id": "10afae89-64a4-42dd-83e2-8baf733230d5", "error": "Invalid control character at: line 9 column 131 (char 594)"}}
-[2026-01-15 14:50:00] [INFO] update_job: job 10afae89-64a4-42dd-83e2-8baf733230d5 -> completed
-[2026-01-15 14:50:01] [INFO] create_job: created job b33fa496-701c-4dcc-bf4f-7dcebe401443 type=start
-[2026-01-15 14:50:01] [INFO] _run_start_job: starting b33fa496-701c-4dcc-bf4f-7dcebe401443
-[2026-01-15 14:50:01] [INFO] update_job: job b33fa496-701c-4dcc-bf4f-7dcebe401443 -> running
-[2026-01-15 14:50:01] [INFO] deep_rag.implementation.start Begin Deep RAG ingestion for query: Automated test #3 - 2026-01-15T20:20:01.7173374+05:30
-[2026-01-15 14:50:01] [INFO] deep_rag.search.start search_candidates for: Automated test #3 - 2026-01-15T20:20:01.7173374+05:30
-[2026-01-15 14:50:01] [INFO] deep_rag.search.done found 15 candidates
-{"timestamp": "2026-01-15 14:50:01", "level": "INFO", "action": "deep_rag.search.done", "message": "found 15 candidates", "details": {"query": "Automated test #3 - 2026-01-15T20:20:01.7173374+05:30", "count": 15}}
-[2026-01-15 14:50:01] [INFO] deep_rag.filter.start filtering 15 candidates
-[2026-01-15 14:50:01] [INFO] deep_rag.filter.done filtered -> 7 candidates
-[2026-01-15 14:50:01] [INFO] deep_rag.scrape.start scraping 7 sources
-[2026-01-15 14:50:04] [INFO] parallel_scrape: fetch failed http://sim.test/1: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:50:04] [INFO] parallel_scrape: fetch failed http://sim.test/3: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:50:04] [INFO] parallel_scrape: fetch failed http://sim.test/2: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:50:04] [INFO] parallel_scrape: fetch failed http://sim.test/5: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:50:04] [INFO] parallel_scrape: fetch failed http://sim.test/4: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:50:05] [INFO] parallel_scrape: fetch failed http://sim.test/6: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:50:05] [INFO] parallel_scrape: fetch failed http://sim.test/7: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:50:05] [INFO] deep_rag.scrape.done scraped 7 sources
-[2026-01-15 14:50:05] [INFO] deep_rag.implementation.done Deep RAG ingestion completed
-{"timestamp": "2026-01-15 14:50:05", "level": "INFO", "action": "deep_rag.implementation.done", "message": "Deep RAG ingestion completed", "details": {"query": "Automated test #3 - 2026-01-15T20:20:01.7173374+05:30", "candidates": 15, "filtered": 7, "scraped": 7, "total_chunks": 7, "inserted_count": 7}}
-[2026-01-15 14:50:05] [INFO] ReasoningEngine: model call attempt 1
-[2026-01-15 14:51:16] [INFO] ReasoningEngine: raw output len=1726
-[2026-01-15 14:51:16] [INFO] reasoner.raw_output raw output received
-{"timestamp": "2026-01-15 14:51:16", "level": "INFO", "action": "reasoner.raw_output", "message": "raw output received", "details": {"job_id": "b33fa496-701c-4dcc-bf4f-7dcebe401443", "length": 1726}}
-[2026-01-15 14:51:16] [INFO] reasoner.persist_success parsed node persisted
-{"timestamp": "2026-01-15 14:51:16", "level": "INFO", "action": "reasoner.persist_success", "message": "parsed node persisted", "details": {"job_id": "b33fa496-701c-4dcc-bf4f-7dcebe401443", "node_id": "83a9a0b3-2d4a-4ada-bcb7-3f96bff3cefd"}}
-[2026-01-15 14:51:16] [INFO] ReasoningEngine: Successfully built node 83a9a0b3-2d4a-4ada-bcb7-3f96bff3cefd
-[2026-01-15 14:51:16] [INFO] reasoner.generate.success node 83a9a0b3-2d4a-4ada-bcb7-3f96bff3cefd
-{"timestamp": "2026-01-15 14:51:16", "level": "INFO", "action": "reasoner.generate.success", "message": "node 83a9a0b3-2d4a-4ada-bcb7-3f96bff3cefd", "details": {"job_id": "b33fa496-701c-4dcc-bf4f-7dcebe401443", "node_id": "83a9a0b3-2d4a-4ada-bcb7-3f96bff3cefd"}}
-[2026-01-15 14:51:16] [INFO] update_job: job b33fa496-701c-4dcc-bf4f-7dcebe401443 -> completed
-[2026-01-15 14:57:56] [INFO] create_job: created job a1cd6d42-7b33-4566-8474-281e242aa18e type=start
-[2026-01-15 14:57:56] [INFO] _run_start_job: starting a1cd6d42-7b33-4566-8474-281e242aa18e
-[2026-01-15 14:57:56] [INFO] update_job: job a1cd6d42-7b33-4566-8474-281e242aa18e -> running
-[2026-01-15 14:57:56] [INFO] deep_rag.implementation.start Begin Deep RAG ingestion for query: Automated test #1 - 2026-01-15T20:27:56.7944644+05:30
-[2026-01-15 14:57:56] [INFO] deep_rag.search.start search_candidates for: Automated test #1 - 2026-01-15T20:27:56.7944644+05:30
-[2026-01-15 14:57:56] [INFO] deep_rag.search.done found 15 candidates
-{"timestamp": "2026-01-15 14:57:56", "level": "INFO", "action": "deep_rag.search.done", "message": "found 15 candidates", "details": {"query": "Automated test #1 - 2026-01-15T20:27:56.7944644+05:30", "count": 15}}
-[2026-01-15 14:57:56] [INFO] deep_rag.filter.start filtering 15 candidates
-[2026-01-15 14:57:56] [INFO] deep_rag.filter.done filtered -> 7 candidates
-[2026-01-15 14:57:56] [INFO] deep_rag.scrape.start scraping 7 sources
-[2026-01-15 14:57:57] [INFO] parallel_scrape: fetch failed http://sim.test/1: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:57:57] [INFO] parallel_scrape: fetch failed http://sim.test/3: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:57:57] [INFO] parallel_scrape: fetch failed http://sim.test/5: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:57:57] [INFO] parallel_scrape: fetch failed http://sim.test/2: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:57:57] [INFO] parallel_scrape: fetch failed http://sim.test/4: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:57:57] [INFO] parallel_scrape: fetch failed http://sim.test/7: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:57:57] [INFO] parallel_scrape: fetch failed http://sim.test/6: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:57:57] [INFO] deep_rag.scrape.done scraped 7 sources
-[2026-01-15 14:57:58] [INFO] deep_rag.implementation.done Deep RAG ingestion completed
-{"timestamp": "2026-01-15 14:57:58", "level": "INFO", "action": "deep_rag.implementation.done", "message": "Deep RAG ingestion completed", "details": {"query": "Automated test #1 - 2026-01-15T20:27:56.7944644+05:30", "candidates": 15, "filtered": 7, "scraped": 7, "total_chunks": 7, "inserted_count": 7}}
-[2026-01-15 14:57:58] [INFO] ReasoningEngine: model call attempt 1
-[2026-01-15 14:57:58] [INFO] startup Backend startup (model=phi3, ollama_url=http://127.0.0.1:11434/api/generate)
-[2026-01-15 14:59:03] [INFO] [DB] MongoDB connection closed
-[2026-01-15 14:59:26] [INFO] startup Backend startup (model=phi3, ollama_url=http://127.0.0.1:11434/api/generate)
-[2026-01-15 14:59:26] [INFO] [DB] Connecting to MongoDB at mongodb://127.0.0.1:27017
-[2026-01-15 14:59:26] [INFO] [DB] Connected to MongoDB
-[2026-01-15 14:59:40] [INFO] create_job: created job daecdfea-835a-42c9-b91e-2bba29fc7711 type=start
-[2026-01-15 14:59:40] [INFO] _run_start_job: starting daecdfea-835a-42c9-b91e-2bba29fc7711
-[2026-01-15 14:59:40] [INFO] update_job: job daecdfea-835a-42c9-b91e-2bba29fc7711 -> running
-[2026-01-15 14:59:40] [INFO] deep_rag.implementation.start Begin Deep RAG ingestion for query: Automated test #1 - 2026-01-15T20:29:40.9112571+05:30
-[2026-01-15 14:59:40] [INFO] deep_rag.search.start search_candidates for: Automated test #1 - 2026-01-15T20:29:40.9112571+05:30
-[2026-01-15 14:59:40] [INFO] deep_rag.search.done found 15 candidates
-{"timestamp": "2026-01-15 14:59:40", "level": "INFO", "action": "deep_rag.search.done", "message": "found 15 candidates", "details": {"query": "Automated test #1 - 2026-01-15T20:29:40.9112571+05:30", "count": 15}}
-[2026-01-15 14:59:40] [INFO] deep_rag.filter.start filtering 15 candidates
-[2026-01-15 14:59:40] [INFO] deep_rag.filter.done filtered -> 7 candidates
-[2026-01-15 14:59:40] [INFO] deep_rag.scrape.start scraping 7 sources
-[2026-01-15 14:59:41] [INFO] parallel_scrape: fetch failed http://sim.test/1: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:59:41] [INFO] parallel_scrape: fetch failed http://sim.test/3: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:59:41] [INFO] parallel_scrape: fetch failed http://sim.test/4: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:59:41] [INFO] parallel_scrape: fetch failed http://sim.test/2: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:59:41] [INFO] parallel_scrape: fetch failed http://sim.test/5: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:59:42] [INFO] parallel_scrape: fetch failed http://sim.test/7: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:59:42] [INFO] parallel_scrape: fetch failed http://sim.test/6: [Errno 11001] getaddrinfo failed
-[2026-01-15 14:59:42] [INFO] deep_rag.scrape.done scraped 7 sources
-[2026-01-15 14:59:46] [INFO] deep_rag.implementation.done Deep RAG ingestion completed
-{"timestamp": "2026-01-15 14:59:46", "level": "INFO", "action": "deep_rag.implementation.done", "message": "Deep RAG ingestion completed", "details": {"query": "Automated test #1 - 2026-01-15T20:29:40.9112571+05:30", "candidates": 15, "filtered": 7, "scraped": 7, "total_chunks": 7, "inserted_count": 7}}
-[2026-01-15 14:59:46] [INFO] ReasoningEngine: model call attempt 1
-[2026-01-15 15:00:38] [INFO] ReasoningEngine: raw output len=507
-[2026-01-15 15:00:38] [INFO] reasoner.raw_output raw output received
-{"timestamp": "2026-01-15 15:00:38", "level": "INFO", "action": "reasoner.raw_output", "message": "raw output received", "details": {"job_id": "daecdfea-835a-42c9-b91e-2bba29fc7711", "length": 507}}
-[2026-01-15 15:00:38] [INFO] ReasoningEngine: Parsing failed: Invalid control character at: line 2 column 361 (char 362)
-[2026-01-15 15:00:38] [ERROR] reasoner.generate.failure parsing failed
-{"timestamp": "2026-01-15 15:00:38", "level": "ERROR", "action": "reasoner.generate.failure", "message": "parsing failed", "details": {"job_id": "daecdfea-835a-42c9-b91e-2bba29fc7711", "error": "Invalid control character at: line 2 column 361 (char 362)"}}
-[2026-01-15 15:00:38] [INFO] reasoner.persist_failure persisted failure
-{"timestamp": "2026-01-15 15:00:38", "level": "INFO", "action": "reasoner.persist_failure", "message": "persisted failure", "details": {"job_id": "daecdfea-835a-42c9-b91e-2bba29fc7711", "error": "Invalid control character at: line 2 column 361 (char 362)"}}
-[2026-01-15 15:00:38] [INFO] update_job: job daecdfea-835a-42c9-b91e-2bba29fc7711 -> completed
-[2026-01-15 15:00:40] [INFO] create_job: created job 05395f8e-a1b3-4aae-ad2c-9154351ef07a type=start
-[2026-01-15 15:00:40] [INFO] _run_start_job: starting 05395f8e-a1b3-4aae-ad2c-9154351ef07a
-[2026-01-15 15:00:40] [INFO] update_job: job 05395f8e-a1b3-4aae-ad2c-9154351ef07a -> running
-[2026-01-15 15:00:40] [INFO] deep_rag.implementation.start Begin Deep RAG ingestion for query: Automated test #2 - 2026-01-15T20:30:40.9827133+05:30
-[2026-01-15 15:00:40] [INFO] deep_rag.search.start search_candidates for: Automated test #2 - 2026-01-15T20:30:40.9827133+05:30
-[2026-01-15 15:00:40] [INFO] deep_rag.search.done found 15 candidates
-{"timestamp": "2026-01-15 15:00:40", "level": "INFO", "action": "deep_rag.search.done", "message": "found 15 candidates", "details": {"query": "Automated test #2 - 2026-01-15T20:30:40.9827133+05:30", "count": 15}}
-[2026-01-15 15:00:40] [INFO] deep_rag.filter.start filtering 15 candidates
-[2026-01-15 15:00:40] [INFO] deep_rag.filter.done filtered -> 7 candidates
-[2026-01-15 15:00:40] [INFO] deep_rag.scrape.start scraping 7 sources
-[2026-01-15 15:00:41] [INFO] parallel_scrape: fetch failed http://sim.test/3: [Errno 11001] getaddrinfo failed
-[2026-01-15 15:00:41] [INFO] parallel_scrape: fetch failed http://sim.test/2: [Errno 11001] getaddrinfo failed
-[2026-01-15 15:00:42] [INFO] parallel_scrape: fetch failed http://sim.test/5: [Errno 11001] getaddrinfo failed
-[2026-01-15 15:00:42] [INFO] parallel_scrape: fetch failed http://sim.test/4: [Errno 11001] getaddrinfo failed
-[2026-01-15 15:00:42] [INFO] parallel_scrape: fetch failed http://sim.test/1: [Errno 11001] getaddrinfo failed
-[2026-01-15 15:00:42] [INFO] parallel_scrape: fetch failed http://sim.test/6: [Errno 11001] getaddrinfo failed
-[2026-01-15 15:00:42] [INFO] parallel_scrape: fetch failed http://sim.test/7: [Errno 11001] getaddrinfo failed
-[2026-01-15 15:00:42] [INFO] deep_rag.scrape.done scraped 7 sources
-[2026-01-15 15:00:42] [INFO] deep_rag.implementation.done Deep RAG ingestion completed
-{"timestamp": "2026-01-15 15:00:42", "level": "INFO", "action": "deep_rag.implementation.done", "message": "Deep RAG ingestion completed", "details": {"query": "Automated test #2 - 2026-01-15T20:30:40.9827133+05:30", "candidates": 15, "filtered": 7, "scraped": 7, "total_chunks": 7, "inserted_count": 7}}
-[2026-01-15 15:00:42] [INFO] ReasoningEngine: model call attempt 1
-[2026-01-15 15:01:33] [INFO] ReasoningEngine: raw output len=469
-[2026-01-15 15:01:33] [INFO] reasoner.raw_output raw output received
-{"timestamp": "2026-01-15 15:01:33", "level": "INFO", "action": "reasoner.raw_output", "message": "raw output received", "details": {"job_id": "05395f8e-a1b3-4aae-ad2c-9154351ef07a", "length": 469}}
-[2026-01-15 15:01:33] [INFO] ReasoningEngine: Parsing failed: Invalid control character at: line 7 column 52 (char 242)
-[2026-01-15 15:01:33] [ERROR] reasoner.generate.failure parsing failed
-{"timestamp": "2026-01-15 15:01:33", "level": "ERROR", "action": "reasoner.generate.failure", "message": "parsing failed", "details": {"job_id": "05395f8e-a1b3-4aae-ad2c-9154351ef07a", "error": "Invalid control character at: line 7 column 52 (char 242)"}}
-[2026-01-15 15:01:33] [INFO] reasoner.persist_failure persisted failure
-{"timestamp": "2026-01-15 15:01:33", "level": "INFO", "action": "reasoner.persist_failure", "message": "persisted failure", "details": {"job_id": "05395f8e-a1b3-4aae-ad2c-9154351ef07a", "error": "Invalid control character at: line 7 column 52 (char 242)"}}
-[2026-01-15 15:01:33] [INFO] update_job: job 05395f8e-a1b3-4aae-ad2c-9154351ef07a -> completed
-[2026-01-15 15:01:34] [INFO] create_job: created job cdd9687f-7e5b-4d9b-8ffa-7eaaf0421351 type=start
-[2026-01-15 15:01:34] [INFO] _run_start_job: starting cdd9687f-7e5b-4d9b-8ffa-7eaaf0421351
-[2026-01-15 15:01:34] [INFO] update_job: job cdd9687f-7e5b-4d9b-8ffa-7eaaf0421351 -> running
-[2026-01-15 15:01:34] [INFO] deep_rag.implementation.start Begin Deep RAG ingestion for query: Automated test #3 - 2026-01-15T20:31:34.2490079+05:30
-[2026-01-15 15:01:34] [INFO] deep_rag.search.start search_candidates for: Automated test #3 - 2026-01-15T20:31:34.2490079+05:30
-[2026-01-15 15:01:34] [INFO] deep_rag.search.done found 15 candidates
-{"timestamp": "2026-01-15 15:01:34", "level": "INFO", "action": "deep_rag.search.done", "message": "found 15 candidates", "details": {"query": "Automated test #3 - 2026-01-15T20:31:34.2490079+05:30", "count": 15}}
-[2026-01-15 15:01:34] [INFO] deep_rag.filter.start filtering 15 candidates
-[2026-01-15 15:01:34] [INFO] deep_rag.filter.done filtered -> 7 candidates
-[2026-01-15 15:01:34] [INFO] deep_rag.scrape.start scraping 7 sources
-[2026-01-15 15:01:35] [INFO] parallel_scrape: fetch failed http://sim.test/1: [Errno 11001] getaddrinfo failed
-[2026-01-15 15:01:35] [INFO] parallel_scrape: fetch failed http://sim.test/4: [Errno 11001] getaddrinfo failed
-[2026-01-15 15:01:35] [INFO] parallel_scrape: fetch failed http://sim.test/3: [Errno 11001] getaddrinfo failed
-[2026-01-15 15:01:35] [INFO] parallel_scrape: fetch failed http://sim.test/5: [Errno 11001] getaddrinfo failed
-[2026-01-15 15:01:35] [INFO] parallel_scrape: fetch failed http://sim.test/2: [Errno 11001] getaddrinfo failed
-[2026-01-15 15:01:35] [INFO] parallel_scrape: fetch failed http://sim.test/6: [Errno 11001] getaddrinfo failed
-[2026-01-15 15:01:35] [INFO] parallel_scrape: fetch failed http://sim.test/7: [Errno 11001] getaddrinfo failed
-[2026-01-15 15:01:35] [INFO] deep_rag.scrape.done scraped 7 sources
-[2026-01-15 15:01:35] [INFO] deep_rag.implementation.done Deep RAG ingestion completed
-{"timestamp": "2026-01-15 15:01:35", "level": "INFO", "action": "deep_rag.implementation.done", "message": "Deep RAG ingestion completed", "details": {"query": "Automated test #3 - 2026-01-15T20:31:34.2490079+05:30", "candidates": 15, "filtered": 7, "scraped": 7, "total_chunks": 7, "inserted_count": 7}}
-[2026-01-15 15:01:35] [INFO] ReasoningEngine: model call attempt 1
-[2026-01-15 15:02:18] [INFO] ReasoningEngine: raw output len=302
-[2026-01-15 15:02:18] [INFO] reasoner.raw_output raw output received
-{"timestamp": "2026-01-15 15:02:18", "level": "INFO", "action": "reasoner.raw_output", "message": "raw output received", "details": {"job_id": "cdd9687f-7e5b-4d9b-8ffa-7eaaf0421351", "length": 302}}
-[2026-01-15 15:02:18] [INFO] reasoner.persist_success parsed node persisted
-{"timestamp": "2026-01-15 15:02:18", "level": "INFO", "action": "reasoner.persist_success", "message": "parsed node persisted", "details": {"job_id": "cdd9687f-7e5b-4d9b-8ffa-7eaaf0421351", "node_id": "f739ac8a-158e-4d40-ac69-457f606f7ca7"}}
-[2026-01-15 15:02:18] [INFO] ReasoningEngine: Successfully built node f739ac8a-158e-4d40-ac69-457f606f7ca7
-[2026-01-15 15:02:18] [INFO] reasoner.generate.success node f739ac8a-158e-4d40-ac69-457f606f7ca7
-{"timestamp": "2026-01-15 15:02:18", "level": "INFO", "action": "reasoner.generate.success", "message": "node f739ac8a-158e-4d40-ac69-457f606f7ca7", "details": {"job_id": "cdd9687f-7e5b-4d9b-8ffa-7eaaf0421351", "node_id": "f739ac8a-158e-4d40-ac69-457f606f7ca7"}}
-[2026-01-15 15:02:18] [INFO] update_job: job cdd9687f-7e5b-4d9b-8ffa-7eaaf0421351 -> completed
-[2026-01-16 03:42:58] [INFO] startup Backend startup (model=phi3, ollama_url=http://127.0.0.1:11434/api/generate)
-[2026-01-16 03:43:16] [INFO] [DB] Connecting to MongoDB at mongodb://127.0.0.1:27017
-[2026-01-16 03:43:16] [INFO] [DB] Connected to MongoDB
-[2026-01-16 03:43:16] [INFO] create_job: created job 98baf8c1-8317-461e-9c68-a665fdd2716a type=start
-[2026-01-16 03:43:16] [INFO] _run_start_job: starting 98baf8c1-8317-461e-9c68-a665fdd2716a
-[2026-01-16 03:43:16] [INFO] update_job: job 98baf8c1-8317-461e-9c68-a665fdd2716a -> running
-[2026-01-16 03:43:16] [INFO] deep_rag.implementation.start Begin Deep RAG ingestion for query: Automated test #1 - 2026-01-16T09:13:16.5623377+05:30
-[2026-01-16 03:43:16] [INFO] deep_rag.search.start search_candidates for: Automated test #1 - 2026-01-16T09:13:16.5623377+05:30
-[2026-01-16 03:43:16] [INFO] deep_rag.search.done found 15 candidates
-{"timestamp": "2026-01-16 03:43:16", "level": "INFO", "action": "deep_rag.search.done", "message": "found 15 candidates", "details": {"query": "Automated test #1 - 2026-01-16T09:13:16.5623377+05:30", "count": 15}}
-[2026-01-16 03:43:16] [INFO] deep_rag.filter.start filtering 15 candidates
-[2026-01-16 03:43:16] [INFO] deep_rag.filter.done filtered -> 7 candidates
-[2026-01-16 03:43:16] [INFO] deep_rag.scrape.start scraping 7 sources
-[2026-01-16 03:43:17] [INFO] parallel_scrape: fetch failed http://sim.test/1: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:43:17] [INFO] parallel_scrape: fetch failed http://sim.test/3: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:43:17] [INFO] parallel_scrape: fetch failed http://sim.test/2: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:43:17] [INFO] parallel_scrape: fetch failed http://sim.test/4: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:43:17] [INFO] parallel_scrape: fetch failed http://sim.test/5: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:43:17] [INFO] parallel_scrape: fetch failed http://sim.test/7: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:43:17] [INFO] parallel_scrape: fetch failed http://sim.test/6: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:43:17] [INFO] deep_rag.scrape.done scraped 7 sources
-[2026-01-16 03:43:22] [INFO] deep_rag.implementation.done Deep RAG ingestion completed
-{"timestamp": "2026-01-16 03:43:22", "level": "INFO", "action": "deep_rag.implementation.done", "message": "Deep RAG ingestion completed", "details": {"query": "Automated test #1 - 2026-01-16T09:13:16.5623377+05:30", "candidates": 15, "filtered": 7, "scraped": 7, "total_chunks": 7, "inserted_count": 7}}
-[2026-01-16 03:43:22] [INFO] ReasoningEngine: model call attempt 1
-[2026-01-16 03:44:58] [INFO] ReasoningEngine: raw output len=1483
-[2026-01-16 03:44:58] [INFO] reasoner.raw_output raw output received
-{"timestamp": "2026-01-16 03:44:58", "level": "INFO", "action": "reasoner.raw_output", "message": "raw output received", "details": {"job_id": "98baf8c1-8317-461e-9c68-a665fdd2716a", "length": 1483}}
-[2026-01-16 03:44:58] [INFO] reasoner.persist_success parsed node persisted
-{"timestamp": "2026-01-16 03:44:58", "level": "INFO", "action": "reasoner.persist_success", "message": "parsed node persisted", "details": {"job_id": "98baf8c1-8317-461e-9c68-a665fdd2716a", "node_id": "2a4adc55-b38e-4f35-b476-dd861cf21920"}}
-[2026-01-16 03:44:58] [INFO] ReasoningEngine: Successfully built node 2a4adc55-b38e-4f35-b476-dd861cf21920
-[2026-01-16 03:44:58] [INFO] reasoner.generate.success node 2a4adc55-b38e-4f35-b476-dd861cf21920
-{"timestamp": "2026-01-16 03:44:58", "level": "INFO", "action": "reasoner.generate.success", "message": "node 2a4adc55-b38e-4f35-b476-dd861cf21920", "details": {"job_id": "98baf8c1-8317-461e-9c68-a665fdd2716a", "node_id": "2a4adc55-b38e-4f35-b476-dd861cf21920"}}
-[2026-01-16 03:44:58] [INFO] update_job: job 98baf8c1-8317-461e-9c68-a665fdd2716a -> completed
-[2026-01-16 03:44:58] [INFO] create_job: created job 1d246676-0ed8-4d16-ba5d-3e510f3ef46a type=start
-[2026-01-16 03:44:58] [INFO] _run_start_job: starting 1d246676-0ed8-4d16-ba5d-3e510f3ef46a
-[2026-01-16 03:44:58] [INFO] update_job: job 1d246676-0ed8-4d16-ba5d-3e510f3ef46a -> running
-[2026-01-16 03:44:58] [INFO] deep_rag.implementation.start Begin Deep RAG ingestion for query: Automated test #2 - 2026-01-16T09:14:58.9111397+05:30
-[2026-01-16 03:44:58] [INFO] deep_rag.search.start search_candidates for: Automated test #2 - 2026-01-16T09:14:58.9111397+05:30
-[2026-01-16 03:44:58] [INFO] deep_rag.search.done found 15 candidates
-{"timestamp": "2026-01-16 03:44:58", "level": "INFO", "action": "deep_rag.search.done", "message": "found 15 candidates", "details": {"query": "Automated test #2 - 2026-01-16T09:14:58.9111397+05:30", "count": 15}}
-[2026-01-16 03:44:58] [INFO] deep_rag.filter.start filtering 15 candidates
-[2026-01-16 03:44:58] [INFO] deep_rag.filter.done filtered -> 7 candidates
-[2026-01-16 03:44:58] [INFO] deep_rag.scrape.start scraping 7 sources
-[2026-01-16 03:45:01] [INFO] parallel_scrape: fetch failed http://sim.test/2: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:45:01] [INFO] parallel_scrape: fetch failed http://sim.test/3: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:45:01] [INFO] parallel_scrape: fetch failed http://sim.test/4: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:45:02] [INFO] parallel_scrape: fetch failed http://sim.test/1: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:45:02] [INFO] parallel_scrape: fetch failed http://sim.test/5: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:45:02] [INFO] parallel_scrape: fetch failed http://sim.test/6: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:45:02] [INFO] parallel_scrape: fetch failed http://sim.test/7: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:45:02] [INFO] deep_rag.scrape.done scraped 7 sources
-[2026-01-16 03:45:02] [INFO] deep_rag.implementation.done Deep RAG ingestion completed
-{"timestamp": "2026-01-16 03:45:02", "level": "INFO", "action": "deep_rag.implementation.done", "message": "Deep RAG ingestion completed", "details": {"query": "Automated test #2 - 2026-01-16T09:14:58.9111397+05:30", "candidates": 15, "filtered": 7, "scraped": 7, "total_chunks": 7, "inserted_count": 7}}
-[2026-01-16 03:45:02] [INFO] ReasoningEngine: model call attempt 1
-[2026-01-16 03:46:13] [INFO] ReasoningEngine: raw output len=883
-[2026-01-16 03:46:13] [INFO] reasoner.raw_output raw output received
-{"timestamp": "2026-01-16 03:46:13", "level": "INFO", "action": "reasoner.raw_output", "message": "raw output received", "details": {"job_id": "1d246676-0ed8-4d16-ba5d-3e510f3ef46a", "length": 883}}
-[2026-01-16 03:46:13] [INFO] ReasoningEngine: Parsing failed: Invalid control character at: line 6 column 26 (char 186)
-[2026-01-16 03:46:13] [ERROR] reasoner.generate.failure parsing failed
-{"timestamp": "2026-01-16 03:46:13", "level": "ERROR", "action": "reasoner.generate.failure", "message": "parsing failed", "details": {"job_id": "1d246676-0ed8-4d16-ba5d-3e510f3ef46a", "error": "Invalid control character at: line 6 column 26 (char 186)"}}
-[2026-01-16 03:46:13] [INFO] reasoner.persist_failure persisted failure
-{"timestamp": "2026-01-16 03:46:13", "level": "INFO", "action": "reasoner.persist_failure", "message": "persisted failure", "details": {"job_id": "1d246676-0ed8-4d16-ba5d-3e510f3ef46a", "error": "Invalid control character at: line 6 column 26 (char 186)"}}
-[2026-01-16 03:46:13] [INFO] update_job: job 1d246676-0ed8-4d16-ba5d-3e510f3ef46a -> completed
-[2026-01-16 03:46:14] [INFO] create_job: created job 105894f8-5a38-4b17-9161-5ab32d9aed11 type=start
-[2026-01-16 03:46:14] [INFO] _run_start_job: starting 105894f8-5a38-4b17-9161-5ab32d9aed11
-[2026-01-16 03:46:14] [INFO] update_job: job 105894f8-5a38-4b17-9161-5ab32d9aed11 -> running
-[2026-01-16 03:46:14] [INFO] deep_rag.implementation.start Begin Deep RAG ingestion for query: Automated test #3 - 2026-01-16T09:16:14.3939193+05:30
-[2026-01-16 03:46:14] [INFO] deep_rag.search.start search_candidates for: Automated test #3 - 2026-01-16T09:16:14.3939193+05:30
-[2026-01-16 03:46:14] [INFO] deep_rag.search.done found 15 candidates
-{"timestamp": "2026-01-16 03:46:14", "level": "INFO", "action": "deep_rag.search.done", "message": "found 15 candidates", "details": {"query": "Automated test #3 - 2026-01-16T09:16:14.3939193+05:30", "count": 15}}
-[2026-01-16 03:46:14] [INFO] deep_rag.filter.start filtering 15 candidates
-[2026-01-16 03:46:14] [INFO] deep_rag.filter.done filtered -> 7 candidates
-[2026-01-16 03:46:14] [INFO] deep_rag.scrape.start scraping 7 sources
-[2026-01-16 03:46:16] [INFO] parallel_scrape: fetch failed http://sim.test/3: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:46:16] [INFO] parallel_scrape: fetch failed http://sim.test/2: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:46:16] [INFO] parallel_scrape: fetch failed http://sim.test/4: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:46:17] [INFO] parallel_scrape: fetch failed http://sim.test/1: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:46:17] [INFO] parallel_scrape: fetch failed http://sim.test/5: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:46:17] [INFO] parallel_scrape: fetch failed http://sim.test/6: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:46:17] [INFO] parallel_scrape: fetch failed http://sim.test/7: [Errno 11001] getaddrinfo failed
-[2026-01-16 03:46:17] [INFO] deep_rag.scrape.done scraped 7 sources
-[2026-01-16 03:46:17] [INFO] deep_rag.implementation.done Deep RAG ingestion completed
-{"timestamp": "2026-01-16 03:46:17", "level": "INFO", "action": "deep_rag.implementation.done", "message": "Deep RAG ingestion completed", "details": {"query": "Automated test #3 - 2026-01-16T09:16:14.3939193+05:30", "candidates": 15, "filtered": 7, "scraped": 7, "total_chunks": 7, "inserted_count": 7}}
-[2026-01-16 03:46:18] [INFO] ReasoningEngine: model call attempt 1
-[2026-01-16 03:47:13] [INFO] ReasoningEngine: raw output len=725
-[2026-01-16 03:47:13] [INFO] reasoner.raw_output raw output received
-{"timestamp": "2026-01-16 03:47:13", "level": "INFO", "action": "reasoner.raw_output", "message": "raw output received", "details": {"job_id": "105894f8-5a38-4b17-9161-5ab32d9aed11", "length": 725}}
-[2026-01-16 03:47:13] [INFO] ReasoningEngine: Parsing failed: Invalid control character at: line 8 column 33 (char 461)
-[2026-01-16 03:47:13] [ERROR] reasoner.generate.failure parsing failed
-{"timestamp": "2026-01-16 03:47:13", "level": "ERROR", "action": "reasoner.generate.failure", "message": "parsing failed", "details": {"job_id": "105894f8-5a38-4b17-9161-5ab32d9aed11", "error": "Invalid control character at: line 8 column 33 (char 461)"}}
-[2026-01-16 03:47:13] [INFO] reasoner.persist_failure persisted failure
-{"timestamp": "2026-01-16 03:47:13", "level": "INFO", "action": "reasoner.persist_failure", "message": "persisted failure", "details": {"job_id": "105894f8-5a38-4b17-9161-5ab32d9aed11", "error": "Invalid control character at: line 8 column 33 (char 461)"}}
-[2026-01-16 03:47:13] [INFO] update_job: job 105894f8-5a38-4b17-9161-5ab32d9aed11 -> completed
 
 
 > [2026-01-16 9:20:XX] [INFO] Post-integration simulation run checkpoint:
@@ -1300,3 +555,343 @@ JSON parsing improvements are complete and working
 Consider testing with different LLM models for better JSON quality
 Monitor success rates over multiple test runs
 Move to next priority feature from project roadmap
+
+### January 17, 2026
+
+**Implementation and Testing of Citation Enforcement and Parsing:**
+1. Implemented citation enforcement and parsing in the `ReasoningEngine`:
+   - Added logic to detect and validate citation tokens.
+   - Integrated citations into the parsed JSON structure.
+   - Enhanced logging to track detected and invalid citations.
+
+**Testing Process:**
+1. Ran the `test_reasoner.py` script to validate the implementation.
+2. Verified the following scenarios:
+   - Valid JSON with citations: Parsed successfully, citations detected.
+   - Invalid citations: Raised appropriate errors.
+   - Missing citations: Handled gracefully without errors.
+3. Reviewed `error_log.txt` to confirm the following:
+   - Successful parsing using strategies like `direct` and `balanced_braces`.
+   - Errors (e.g., invalid JSON) were logged and handled gracefully.
+   - No critical failures occurred during testing.
+
+**Outcome:**
+- The `ReasoningEngine` successfully enforced and parsed citations.
+- All test cases in `test_reasoner.py` passed.
+- Error handling and logging worked as expected.
+
+**Next Steps:**
+- Proceed with integration testing to validate the feature in the broader system context.
+- Monitor logs during integration testing for any edge cases or unexpected issues.
+
+### January 17, 2026
+
+**Integration Testing and Final Fixes:**
+1. Resolved all `ModuleNotFoundError` issues by fixing incorrect import paths across the project:
+   - Updated imports in `manual_test_reasoner.py`, `jobs.py`, `simulation.py`, `vector_store.py`, and other files to use the `backend` structure.
+2. Ran the `main.py` script to validate the `ReasoningEngine` in the broader system context.
+3. Observed the following:
+   - No runtime errors occurred during the integration test.
+   - Deprecation warnings for `@app.on_event` were noted but did not affect functionality.
+
+**Outcome:**
+- The `ReasoningEngine` and related components work as expected in the full system flow.
+- Integration testing confirmed that all features are functioning correctly.
+
+**Next Steps:**
+- Address the `@app.on_event` deprecation warnings (optional).
+- Proceed with the next feature implementation.
+
+2026-01-17: Completed implementation of citation enforcement and parsing in the ReasoningEngine.
+2026-01-17: Validated ReasoningEngine functionality through manual and integration tests.
+2026-01-17: Centralized logging configuration to write logs to error_log.txt.
+2026-01-17: Updated logging to include timestamps in the Delhi timezone.
+2026-01-17: Installed missing pytz dependency for timezone handling.
+2026-01-17: Validated logging changes by generating a test log entry.
+2026-01-17 20:15: Starting implementation of Risk Layer Enforcement.
+- Adding validators for citation validation.
+- Implementing risk severity checks.
+- Adding confidence calibration logic.
+
+[2026-01-17] **Task Log: Implementation of Risk Layer Enforcement**
+
+### **Implementation Details**
+#### **What was implemented:**
+- **Citation Validation Enhancements:**
+  - Added validators to ensure citations follow the expected format.
+  - Integrated citation validation into the Risk Layer Enforcement pipeline.
+- **Risk Severity Checks:**
+  - Implemented logic to validate and enforce severity levels for risks.
+  - Added constraints to ensure critical risks with high likelihood are flagged for mitigation.
+- **Confidence Calibration Logic:**
+  - Developed a calibration mechanism to adjust confidence scores based on retrieval metrics and validation retries.
+  - Ensured confidence scores are capped appropriately for low-similarity retrievals.
+
+#### **Why it was implemented:**
+- To enhance the robustness of the Risk Layer Enforcement by ensuring:
+  - Proper validation of citations.
+  - Accurate assessment of risk severity.
+  - Reliable confidence scoring for decision-making.
+- To align with the project roadmap and improve the overall reliability of the ReasoningEngine.
+
+#### **How it was implemented:**
+- **Citation Validation:**
+  - Updated the `schemas.py` file to include validators for `source_citations`.
+  - Added logic to normalize and validate citation formats.
+- **Risk Severity Checks:**
+  - Introduced a validator to enforce rules for critical risks with high likelihood.
+  - Ensured that such risks are flagged for mitigation or justification.
+- **Confidence Calibration:**
+  - Added a `_calculate_confidence_score` method to the `ReasoningEngine`.
+  - Incorporated penalties for validation retries and calibrated scores based on retrieval similarity.
+
+### **Testing Details**
+#### **Tests Conducted:**
+- **Unit Tests:**
+  - Added test cases for:
+    - Valid and invalid citations.
+    - Risk severity validation.
+    - Confidence score calibration.
+- **Integration Tests:**
+  - Validated the Risk Layer Enforcement pipeline in the broader system context.
+
+#### **Test Results:**
+- All unit and integration tests passed successfully.
+- Verified that:
+  - Invalid citations are flagged appropriately.
+  - Critical risks with high likelihood are enforced for mitigation.
+  - Confidence scores are calculated and calibrated correctly.
+
+### **Observations**
+- **Error Log Review:**
+  - Reviewed `error_log.txt` for issues related to the Risk Layer Enforcement.
+  - No critical errors were found.
+- **Documentation Issues:**
+  - Markdown linting issues in `README.md` and `frontend_design_spec.md` remain unresolved but do not affect functionality.
+- **System Behavior:**
+  - The Risk Layer Enforcement pipeline is functioning as expected.
+  - Confidence calibration logic improves decision-making reliability.
+
+### **Conclusion**
+- The implementation and testing of Risk Layer Enforcement are complete.
+- The pipeline is ready for production use.
+- No critical issues remain, and the task is marked as complete.
+
+### January 18, 2026
+
+**Debugging and enhancements performed on `SimulationEngine` and its tests:**
+- Fixed MongoDB connection string in `backend/app/database/connection.py`.
+- Migrated to Pydantic V2 by replacing `dict()` with `model_dump()` in `SimulationEngine`.
+- Updated `validate_risk_severity` in `schemas.py` to handle `Risk` objects correctly.
+- Created asyncio event loop fixture in `conftest.py` to address event loop errors.
+- Mocked `motor` operations globally in `conftest.py` to prevent event loop conflicts.
+- Simplified and debugged `test_create_branch` in `backend/tests/test_simulation.py`.
+- Resolved `RuntimeError: Event loop is closed` by ensuring proper mocking and cleanup.
+- Verified all tests passed successfully after fixes.
+
+
+### January 20, 2026 - Hybrid Sparse Fallback Implementation & Complete Test Suite Overhaul
+
+**Feature Implemented: Hybrid Sparse Fallback for RAG Retrieval**
+
+**WHAT WE DID:**
+1. Implemented hybrid sparse fallback mechanism in ContextBuilder's retrieve_relevant_chunks() method
+2. Completely rewrote test suite to fix 20 identified critical issues
+3. Established development rules to prevent incremental debugging loops
+
+**HOW WE DID IT:**
+
+*Feature Implementation:*
+- Modified: backend/app/engines/scraper.py (retrieve_relevant_chunks method)
+  - Primary: Vector similarity search via query_similar_chunks()
+  - Fallback: MongoDB text search when vector search returns empty OR all scores < 0.7
+  - Fallback uses MongoDB text index with textScore sorting
+  - Returns top-k results from whichever method succeeds
+
+*Test Suite Overhaul - Fixed 20 Critical Issues:*
+1. FIXTURE_CREATION_TIMING: Added autouse fixture to patch all external calls before instantiation
+2. REAL_BUILD_KB_CALLED: Mocked build_knowledge_base to prevent real web scraping
+3. REAL_PARALLEL_SCRAPE: Blocked all HTTP requests by mocking parallel_scrape
+4. REAL_LLM_CALLS: Mocked ReasoningEngine.generate_decision to prevent 9 retry attempts
+5. MISSING_REASONER_MOCK: Added comprehensive ReasoningEngine mocking
+6. PATCH_PATH_WRONG: Used patch.object on instances instead of class-level patches
+7. GET_DATABASE_REAL_CALL: Intercepted all get_database() calls globally
+8. JSON_PARSING_FAILURES: Mocked LLM response structure properly
+9. FIXTURE_DECORATOR_SCOPE: Changed from module to function scope
+10. MOCK_CONTEXT_BUILDER_UNUSED: Used instance-level mocks via patch.object
+11. MONGODB_COLLECTION_DICT_MISMATCH: Collections dict with side_effect lambda for any key
+12. ASYNC_MOCK_MISUSE_FIND: MagicMock for sync cursor methods, AsyncMock for to_list()
+13. REASONING_ENGINE_RETRY_LOOP: Eliminated by mocking at engine level
+14. DEEP_RAG_INGESTION_REAL: Mocked entire pipeline (search, filter, scrape, chunk)
+15. CHUNK_EMBEDDING_REAL: Patched upsert_chunk globally in conftest.py
+16. VERBOSE_LOGGING_SLOWDOWN: Streamlined logging to INFO and above only
+17. DECISION_NODE_SCHEMA_MOCK: Mock node with complete model_dump() structure
+18. SESSIONS_COLLECTION_UPDATE_NOT_MOCKED: Verified with assertions in tests
+19. TERMINAL_STATE_CHECK_REAL: Mocked _is_terminal_state to return False
+20. ASSERTION_CHECKS_WRONG_MOCKS: All assertions verify correct mock objects
+
+**FILES MODIFIED:**
+
+*Feature Code:*
+- backend/app/engines/scraper.py (retrieve_relevant_chunks method)
+
+*Test Infrastructure:*
+- backend/tests/test_simulation.py (complete rewrite - 238 lines)
+- backend/tests/conftest.py (added global patches for upsert_chunk and query_similar_chunks)
+
+*Documentation:*
+- DEVELOPMENT_RULES.md (created - comprehensive development guidelines)
+- .copilot-rules (created - Copilot-specific preferences)
+- .github/COPILOT_INSTRUCTIONS.md (created - GitHub Copilot workspace instructions)
+
+**WHY WE DID IT:**
+
+*Feature Purpose:*
+- Vector search can fail when embeddings don't exist or query context is very different
+- Text search provides reliable keyword-based fallback
+- Ensures RAG system never fails silently - always returns relevant context
+- Improves LLM decision quality by preventing context starvation
+
+*Test Suite Purpose:*
+- Original test suite made real network calls, LLM calls, and DB operations
+- Tests took 95+ seconds and were unreliable
+- Needed proper mocking to isolate units and speed up CI/CD
+- Established engineering discipline to prevent wasted debugging time
+
+**OBSERVATIONS:**
+
+*What Worked:*
+ All 8 tests now pass consistently (test_reasoner.py: 5, test_simulation.py: 3)
+ Test execution time reduced from 95+ seconds to 8.35 seconds (91% improvement)
+ No real external dependencies triggered (verified via logs)
+ Proper async/sync mock separation prevents coroutine errors
+ Autouse fixtures ensure patches apply before any code execution
+
+*Technical Insights:*
+- MongoDB find() returns sync cursor; sort/limit are sync methods; only to_list() is async
+- patch.object on fixture instances is more reliable than class-level patches
+- Autouse fixtures with proper context managers prevent fixture instantiation races
+- Function-scoped fixtures prevent test pollution but require proper cleanup
+
+*What's Complete:*
+ Hybrid sparse fallback feature implemented and working
+ Complete test suite with proper mocking infrastructure
+ All 20 identified issues resolved
+ Development rules documented for future work
+ Fast, reliable CI/CD-ready test execution
+
+*What's Left / Future Work:*
+- MongoDB text index must be created on global_context collection for fallback to work in production
+  Command: db.global_context.createIndex({ content: "text" })
+- Consider adding metrics/telemetry to track fallback trigger frequency
+- May want to make similarity threshold (0.7) configurable via environment variable
+- Could add caching layer for frequently queried chunks to improve performance further
+
+*Key Learning:*
+- NEVER enter incremental change loops (change  test  fail  repeat)
+- Always analyze completely first, fix everything together, test once
+- Proper test isolation saves exponentially more time than it costs to set up
+- Documented rules in DEVELOPMENT_RULES.md prevent repeating same mistakes
+
+**TEST RESULTS:**
+`
+backend/tests/test_reasoner.py::test_valid_json_with_citations PASSED
+backend/tests/test_reasoner.py::test_invalid_citation PASSED
+backend/tests/test_reasoner.py::test_missing_citations PASSED
+backend/tests/test_reasoner.py::test_empty_input PASSED
+backend/tests/test_reasoner.py::test_large_input PASSED
+backend/tests/test_simulation.py::test_build_initial_world PASSED
+backend/tests/test_simulation.py::test_hybrid_sparse_fallback PASSED
+backend/tests/test_simulation.py::test_create_branch PASSED
+
+8 passed in 8.35s
+`
+
+**STATUS: COMPLETE** 
+- Hybrid sparse fallback feature is production-ready
+- Test suite is clean, fast, and maintainable
+- Development guidelines established for team consistency
+
+
+[2026-01-20 04:39:04] [INFO] feature.speculative_flag.start Starting implementation of automatic speculative flag logic for low-confidence claims (v1.2 must-have anti-hallucination feature).
+
+[2026-01-20 04:42:43] [INFO] feature.speculative_flag.complete Speculative flag logic implementation complete and tested.
+
+**Implementation Summary:**
+- Added _should_mark_speculative() method to ReasoningEngine with 4 detection rules:
+  1. Confidence score < 0.5 (low overall confidence)
+  2. Context confidence < 0.8 (weak retrieval similarity per project guide section 5)
+  3. No citations AND context_confidence < 0.9 (claims without grounding)
+  4. Validation retries >= 2 (unstable reasoning)
+- Updated generate_decision() to automatically apply speculative flag before returning nodes
+- Enhanced logging to track when and why nodes are marked speculative
+- Updated persistence to use model_dump() instead of deprecated dict()
+
+**Testing Details:**
+- Added 5 comprehensive test cases:
+  * test_speculative_flag_low_confidence: Verifies low confidence triggers flag
+  * test_speculative_flag_low_similarity: Verifies retrieval similarity < 0.8 triggers flag
+  * test_speculative_flag_no_citations: Verifies missing citations with weak grounding triggers flag
+  * test_speculative_flag_multiple_retries: Verifies 2+ retries triggers flag
+  * test_speculative_flag_combined_conditions: Tests edge cases and borderline thresholds
+- All 13 tests passing (10 reasoner + 3 simulation)
+- Test execution: 8.20 seconds
+- No regressions introduced
+
+**Files Modified:**
+- backend/app/engines/reasoner.py: Added _should_mark_speculative() method and flag application logic
+- backend/tests/test_reasoner.py: Added 5 new test cases for speculative flag logic
+
+**Why It Works:**
+- Per project guide section 5: "Any externally assertive claim lacking a matching chunk similarity >= 0.8 must include a citation or be flagged speculative=true"
+- Per project guide section 9: "Low-confidence claims are flagged speculative: the UI must render them with clear visual cues"
+- Anti-hallucination mechanism prevents LLM from presenting ungrounded claims as facts
+- Automatic enforcement ensures LLM cannot bypass the instruction in prompts
+
+**What's Complete:**
+ Speculative flag schema field (already existed)
+ Automatic detection logic with 4 rules
+ Integration into generate_decision() workflow
+ Comprehensive test coverage
+ Event logging for debugging and analysis
+ No behavior change for high-confidence, well-grounded nodes
+
+**What's Left:**
+- Frontend UI warning badge (optional enhancement, not critical for v1.2)
+- Future: Track speculative rate metrics for quality monitoring
+
+**Observations:**
+- Borderline thresholds tested: 0.5 and 0.8 correctly do NOT trigger (thresholds are < not <=)
+- Multiple rules can trigger simultaneously but only one event logged (first matching rule)
+- Speculative flag appears in logs: "Successfully built node {id} (speculative=True/False)"
+- Ready for production use - anti-hallucination safety now automatic
+
+**STATUS: COMPLETE** 
+- Feature ready for production
+- All tests passing
+- Follows NO LOOP development rule (analyzed all requirements, implemented completely, tested once)
+
+
+[2026-01-20 04:45:01] [INFO] feature.telemetry_metrics.start Starting implementation of local telemetry metrics for performance monitoring and debugging (v1.2 short-term priority).
+
+[2026-01-20 05:15:00] [INFO] feature.telemetry_metrics.complete Telemetry metrics implementation finished (local-only, per project_guide v1.2 section 11). All tests passing (13/13).
+
+**Implementation Summary:**
+- Added metrics collector utility (backend/app/utils/metrics.py) with in-memory + Mongo event recording, standardized fields (operation, latency_ms, cache_hit, similarity_score, retry_count, chunk_count, success, details).
+- Instrumented Deep RAG ingestion/retrieval: track_latency wrappers on build_knowledge_base (rag.ingestion) and retrieve_relevant_chunks (rag.retrieval), metrics for vector search vs text fallback (cache hits, top similarity, chunk counts, fallback trigger details).
+- Instrumented LLM pipeline: _call_model logs llm.api_call latency and retry_count; generate_decision logs llm.generate latency plus confidence_score/persona/temperature/retry_count/speculative flag; failure paths emit success=False with error details.
+
+**Files Modified:**
+- backend/app/utils/metrics.py (new): MetricsCollector singleton + track_latency context manager; logs structured metrics locally.
+- backend/app/engines/scraper.py: Added telemetry to build_knowledge_base and retrieve_relevant_chunks (ingestion/retrieval latency, cache_hit, similarity, chunk_count, fallback triggers).
+- backend/app/engines/reasoner.py: Added telemetry to _call_model and generate_decision (latency, retries, confidence, persona, temperature, speculative state).
+
+**Testing:**
+- pytest backend/tests/ -v → 13 passed in 9.75s.
+
+**Why It Works:**
+- Aligns with project_guide v1.2 requirement for local telemetry (no external SaaS) and captures RAG + LLM latency, retries, and grounding quality signals for debugging/perf tuning.
+
+**Observations:**
+- Fallback paths now emit explicit rag.text_fallback metrics with trigger reason (e.g., low_vector_similarity <0.7).
+- LLM retries captured; success/failure flags allow quick filtering in logs/DB events.

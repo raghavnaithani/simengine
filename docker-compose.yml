@@ -41,7 +41,7 @@ services:
       - mongo
       - ollama
     environment:
-      - MONGO_URL=mongodb://mongo:27017
+      - MONGO_URL=mongodb://127.0.0.1:27017
       - OLLAMA_URL=http://ollama:11434/api/generate
       - OLLAMA_MODEL=phi3
     # CRITICAL: Memory limits for Headless Browser (Scraper) safety

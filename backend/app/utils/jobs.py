@@ -1,8 +1,8 @@
 from typing import Any, Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
-from app.database.connection import get_database
-from app.utils.logger import append_log
+from backend.app.database.connection import get_database
+from backend.app.utils.logger import append_log
 
 COLLECTION = 'jobs'
 
@@ -15,8 +15,8 @@ async def create_job(job_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         'type': job_type,
         'payload': payload,
         'status': 'queued',
-        'created_at': datetime.utcnow(),
-        'updated_at': datetime.utcnow(),
+        'created_at': datetime.now(timezone.utc),
+        'updated_at': datetime.now(timezone.utc),
         'result': None,
         'error': None,
     }
@@ -28,7 +28,7 @@ async def create_job(job_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
 async def update_job(job_id: str, status: str, result: Optional[Dict[str, Any]] = None, error: Optional[str] = None):
     db = await get_database()
     coll = db[COLLECTION]
-    update = {'status': status, 'updated_at': datetime.utcnow()}
+    update = {'status': status, 'updated_at': datetime.now(timezone.utc)}
     if result is not None:
         update['result'] = result
     if error is not None:

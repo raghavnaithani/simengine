@@ -1,24 +1,27 @@
 import os
+import asyncio
+import contextvars
 from motor.motor_asyncio import AsyncIOMotorClient
-from app.utils.logger import append_log
+from backend.app.utils.logger import append_log
 
-MONGO_URL = os.getenv('MONGO_URL', 'mongodb://mongo:27017')
+MONGO_URL = os.getenv('MONGO_URL', 'mongodb://127.0.0.1:27017')
 DB_NAME = os.getenv('MONGO_DB', 'simengine_db')
 
-class Database:
-	client: AsyncIOMotorClient = None
-
-db = Database()
+# Context variable to store the MongoDB client for each event loop
+client_context = contextvars.ContextVar("mongo_client", default=None)
 
 async def get_database():
 	"""Return an async Motor database instance. Connects on first call."""
-	if db.client is None:
+	client = client_context.get()
+	if client is None:
 		append_log(f"[DB] Connecting to MongoDB at {MONGO_URL}")
-		db.client = AsyncIOMotorClient(MONGO_URL)
+		client = AsyncIOMotorClient(MONGO_URL)
+		client_context.set(client)
 		append_log("[DB] Connected to MongoDB")
-	return db.client[DB_NAME]
+	return client[DB_NAME]
 
 async def close_mongo_connection():
-	if db.client:
-		db.client.close()
+	client = client_context.get()
+	if client:
+		client.close()
 		append_log("[DB] MongoDB connection closed")

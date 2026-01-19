@@ -2,7 +2,9 @@ from typing import List, Dict, Any, Optional
 import hashlib
 import math
 import asyncio
-from app.database.connection import get_database
+from backend.app.database.connection import get_database
+from backend.app.utils.logger import record_event
+import os
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -16,6 +18,9 @@ except Exception:
 COLLECTION = 'global_context'
 # all-MiniLM-L6-v2 produces 384 dimensions. Use this as the canonical default.
 DEFAULT_DIM = 384
+
+# Update MongoDB connection string to use localhost
+MONGO_URL = os.getenv('MONGO_URL', 'mongodb://127.0.0.1:27017')
 
 
 def _hash_embedding(text: str, dim: int = DEFAULT_DIM) -> List[float]:
@@ -92,8 +97,6 @@ async def query_similar_chunks(query: str = None, query_embedding: Optional[List
     coll = db[COLLECTION]
 
     # 1. Fetch candidates (Simple Scan)
-    # In v1.3, we will use Atlas Vector Search ($vectorSearch).
-    # For now, we scan up to 200 docs locally.
     docs = await coll.find({'embedding': {'$exists': True}}).limit(200).to_list(length=200)
 
     scored: List[Dict[str, Any]] = []
@@ -101,11 +104,24 @@ async def query_similar_chunks(query: str = None, query_embedding: Optional[List
         emb = d.get('embedding')
         if not emb:
             continue
-        # This will now work because both vectors are DEFAULT_DIM dim
+        # Compute cosine similarity
         score = _cosine(query_embedding, emb)
         d['_similarity_score'] = float(score)
         scored.append(d)
 
     # Sort by highest score first
     scored.sort(key=lambda x: x.get('_similarity_score', 0.0), reverse=True)
+
+    # Log top-k results
+    record_event(level='INFO', action='vector_search_results', message=f"Vector search results: {len(scored[:k])} chunks", details={'query': query, 'results': scored[:k]})
+
     return scored[:k]
+
+
+async def ensure_text_index():
+    """Ensure the MongoDB collection has the required text index."""
+    db = await get_database()
+    coll = db[COLLECTION]
+    indexes = await coll.index_information()
+    if "content_text_index" not in indexes:
+        await coll.create_index([("content", "text")], name="content_text_index")

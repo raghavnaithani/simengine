@@ -5,18 +5,19 @@ import httpx
 from urllib.parse import urlparse
 import os
 
-from app.utils.logger import append_log, record_event
-from app.database.connection import close_mongo_connection, get_database
-from app.engines.scraper import ContextBuilder
-from app.engines.reasoner import ReasoningEngine
-from app.engines.simulation import SimulationEngine
-from app.utils.jobs import create_job, update_job, get_job
+from backend.app.utils.logger import append_log, record_event
+from backend.app.database.connection import close_mongo_connection, get_database
+from backend.app.engines.scraper import ContextBuilder
+from backend.app.engines.reasoner import ReasoningEngine
+from backend.app.engines.simulation import SimulationEngine
+from backend.app.utils.jobs import create_job, update_job, get_job
 import asyncio
 from typing import Dict, Any
 import traceback
 from bson import ObjectId
 from datetime import datetime
 from fastapi import Request
+import pytz
 
 app = FastAPI(title="Decision Graph Simulator - Backend (v1.2)")
 
@@ -352,7 +353,7 @@ async def _run_start_job(job_id: str):
                     'prompt': prompt,
                     'mode': mode,
                     'persona': persona,
-                    'created_at': datetime.utcnow()
+                    'created_at': datetime.now(pytz.utc)
                 })
 
         # Use SimulationEngine to build initial world
