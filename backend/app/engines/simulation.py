@@ -32,7 +32,8 @@ class SimulationEngine:
         mode: str = "Analytical",
         persona: str = "Skeptical Analyst",
         num_steps: int = 3,
-        job_id: Optional[str] = None
+        job_id: Optional[str] = None,
+        seed: Optional[int] = None
     ) -> Dict[str, Any]:
         """Build initial simulation world with N time steps.
 
@@ -43,6 +44,7 @@ class SimulationEngine:
             persona: Persona for reasoning
             num_steps: Number of initial time steps to generate
             job_id: Optional job ID for logging
+            seed: Optional random seed for reproducible temperature sampling
 
         Returns:
             Dict with 'root_node_id', 'node_ids' (list), and 'status'
@@ -69,7 +71,17 @@ class SimulationEngine:
                 details={"context": context}
             )
 
-            # Step 3: Sample temperature per session (0.5-0.8 range per spec) - reuse for all nodes in this session
+            # Step 3: Set random seed for reproducibility (if provided)
+            if seed is not None:
+                random.seed(seed)
+                record_event(
+                    level="INFO",
+                    action="simulation.seed_set",
+                    message=f"Random seed set to {seed} for reproducibility",
+                    details={"seed": seed, "session_id": session_id}
+                )
+
+            # Step 4: Sample temperature per session (0.5-0.8 range per spec) - reuse for all nodes in this session
             temperature = round(random.uniform(0.5, 0.8), 2)
 
             # Step 4: Generate root node (time_step 0)
@@ -173,7 +185,8 @@ class SimulationEngine:
         action: str,
         session_id: str,
         persona: str = "Optimistic Founder",
-        job_id: Optional[str] = None
+        job_id: Optional[str] = None,
+        seed: Optional[int] = None
     ) -> Dict[str, Any]:
         """Create a branch from a parent node.
 
@@ -186,6 +199,7 @@ class SimulationEngine:
             session_id: Session identifier
             persona: Persona for reasoning
             job_id: Optional job ID for logging
+            seed: Optional random seed for reproducible temperature sampling
 
         Returns:
             Dict with 'node_id', 'edge_id', and 'status'
@@ -219,10 +233,20 @@ class SimulationEngine:
             # Step 3: Get context for reasoning (only recent context, not full history)
             context = await self.context_builder.get_context_for_reasoner(seed_prompt, k=5)
 
-            # Step 4: Sample temperature for this branch (0.5-0.8 range per spec)
+            # Step 4: Set random seed for reproducibility (if provided)
+            if seed is not None:
+                random.seed(seed)
+                record_event(
+                    level="INFO",
+                    action="simulation.seed_set",
+                    message=f"Random seed set to {seed} for branch reproducibility",
+                    details={"seed": seed, "parent_node_id": parent_node_id}
+                )
+
+            # Step 5: Sample temperature for this branch (0.5-0.8 range per spec)
             temperature = round(random.uniform(0.5, 0.8), 2)
 
-            # Step 5: Generate child node
+            # Step 6: Generate child node
             child_node = await self.reasoning_engine.generate_decision(
                 seed_prompt,
                 context,

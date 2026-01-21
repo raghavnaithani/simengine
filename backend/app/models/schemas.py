@@ -3,6 +3,15 @@ from typing import List, Optional, Literal
 from uuid import uuid4
 from datetime import datetime, timezone
 
+class Session(BaseModel):
+    """Session model for reproducible simulation runs."""
+    session_id: str
+    prompt: str
+    mode: str = "Analytical"
+    persona: str = "Skeptical Analyst"
+    seed: Optional[int] = None  # For reproducibility
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
 class KnowledgeChunk(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     content: str
@@ -93,6 +102,23 @@ class DecisionNode(BaseModel):
         for risk in v:
             if risk.severity == 'Critical' and risk.likelihood == 'High':
                 raise ValueError('Critical risks with high likelihood must be mitigated or justified')
+        return v
+
+    @field_validator('risks')
+    def validate_high_severity_required(cls, v):
+        """Ensure at least one High severity risk is present.
+        
+        Per project guide Section 2.3: "DecisionNode must include risks: 
+        List[Risk] and at least one High severity when applicable."
+        
+        Interpretation: Required for all decision nodes.
+        """
+        has_high_severity = any(risk.severity == 'High' for risk in v)
+        if not has_high_severity:
+            raise ValueError(
+                'DecisionNode must include at least one High severity risk. '
+                'Identify critical failure modes, challenges, or threats.'
+            )
         return v
 
     @field_validator('source_citations', mode="before")

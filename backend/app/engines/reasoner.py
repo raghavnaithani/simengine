@@ -231,6 +231,17 @@ class ReasoningEngine:
                 valid_alts.append(a)
         data["alternatives"] = valid_alts
 
+        # FIX 2: Map extracted citations to source_citations field (Citation Enforcement)
+        # Per project guide Section 5: source_citations must be populated from extracted [Source:] tokens
+        if 'citations' in data and isinstance(data['citations'], list) and data['citations']:
+            # Format citations as "Source:<content>" per schemas.py validator requirements (line 110)
+            formatted_citations = [f"Source:{c}" if not c.startswith('Source:') else c 
+                                  for c in data['citations']]
+            data['source_citations'] = formatted_citations
+            append_log(f"ReasoningEngine: Mapped {len(formatted_citations)} citations to source_citations field")
+        elif 'source_citations' not in data:
+            data['source_citations'] = []
+
         return data
 
     def _extract_and_clean_json(self, raw_text: str) -> Dict[str, Any]:
@@ -262,17 +273,19 @@ class ReasoningEngine:
             clean_text = new_text
 
         # Extract and remove citation tokens before parsing JSON
-        citation_pattern = r'\[CITATION:([^\]]+)\]'
+        # Format per project guide Section 7: [Source: cache:<id> | <url>]
+        citation_pattern = r'\[Source:\s*([^\]]+)\]'
         citations = re.findall(citation_pattern, raw_text)
         if citations:
-            append_log(f"ReasoningEngine: Detected citations: {citations}")
+            append_log(f"ReasoningEngine: Detected citations (Source format): {citations}")
 
         # Debug logging for citation validation
         append_log(f"Validating citations: {citations}")
         for citation in citations:
-            if not re.match(r'^[a-zA-Z0-9_-]+$', citation):
+            # Validate format: should be cache:<id> or cache:<id> | url
+            if not (citation.startswith('cache:') or 'http' in citation):
                 append_log(f"Invalid citation detected: {citation}")
-                raise ValueError(f"Invalid citation format: {citation}")
+                raise ValueError(f"Invalid citation format: {citation}. Expected [Source: cache:<id> | <url>]")
 
         # Remove citation tokens from text
         raw_text = re.sub(citation_pattern, '', raw_text)  # Remove citation tokens from text
@@ -368,6 +381,47 @@ class ReasoningEngine:
         # Placeholder validation logic; replace with actual rules
         return bool(re.match(r'^[a-zA-Z0-9_-]+$', citation))
 
+    def _generate_retry_instruction(self, error_message: str, attempt_number: int) -> str:
+        """Generate targeted retry instruction based on validation failure type.
+        
+        Provides specific guidance to LLM on what needs to be fixed.
+        """
+        error_lower = error_message.lower()
+        base = f"\n\nAttempt {attempt_number} failed."
+        
+        # Risk-specific guidance (High severity missing)
+        if 'high severity' in error_lower:
+            return (
+                f"{base} Your output is missing High severity risks. "
+                "You MUST identify at least one High severity failure mode, challenge, or threat. "
+                "Include why it's a serious concern and cite sources where applicable. "
+                "Retry with at least one High severity risk in the risks array."
+            )
+        
+        # Citation-specific guidance
+        elif 'citation' in error_lower or '[source:' in error_lower.lower():
+            return (
+                f"{base} Your output is missing required citations. "
+                "Every external claim must include [Source: cache:<id> | <url>] inline. "
+                "Review your text and add citations for all factual assertions."
+            )
+        
+        # Confidence-specific guidance
+        elif 'confidence' in error_lower:
+            return (
+                f"{base} Your output has invalid confidence_score. "
+                "Confidence must be between 0.0 and 1.0. "
+                "Set to 0.5 if uncertain, 0.8+ if well-supported by evidence."
+            )
+        
+        # Generic JSON parse error
+        else:
+            return (
+                f"{base} JSON formatting error: {error_message[:100]}. "
+                "Ensure valid JSON with: all quotes matched, all commas present, "
+                "no trailing commas, all braces closed, no control characters."
+            )
+
     async def generate_decision(
         self, 
         prompt: str, 
@@ -415,8 +469,10 @@ class ReasoningEngine:
             try:
                 # Call model (with retry prompt if this is a retry)
                 if json_attempt > 0:
-                    retry_instruction = f"\n\nIMPORTANT: Previous attempt failed with error: {last_parse_error}. "
-                    retry_instruction += "You MUST output ONLY valid JSON. Check for: missing quotes, trailing commas, unclosed braces, control characters."
+                    retry_instruction = self._generate_retry_instruction(
+                        error_message=last_parse_error,
+                        attempt_number=json_attempt
+                    )
                     retry_prompt = f"{full_prompt}{retry_instruction}\n\nJSON OUTPUT:"
                 else:
                     retry_prompt = full_prompt
@@ -438,8 +494,50 @@ class ReasoningEngine:
                 )
                 clean_data['confidence_score'] = confidence_score
                 
-                # Determine if node should be marked speculative
+                # FIX 3: Enforce citation requirement per project guide Section 9
+                # "ReasoningEngine must fail a node if required citations are missing for claims that exceed confidence threshold"
                 has_citations = bool(clean_data.get('source_citations', []))
+                if confidence_score >= 0.5 and not has_citations:
+                    # High-confidence node without citations - trigger adversarial retry
+                    if json_attempt < max_json_retries - 1:
+                        retry_instruction = (
+                            f"\n\nCRITICAL CITATION REQUIREMENT: Your claim has HIGH confidence ({confidence_score:.2f}) "
+                            f"but NO CITATIONS. Per project rules:\n"
+                            f"  1. You MUST include [Source: cache:<id> | <url>] for EVERY external claim\n"
+                            f"  2. If you cannot ground a claim, set speculative: true and include [Source: speculative]\n"
+                            f"  3. Re-examine each claim in description and alternatives\n"
+                            f"Retry now with proper citations for all factual claims."
+                        )
+                        retry_prompt = f"{full_prompt}{retry_instruction}\n\nJSON OUTPUT:"
+                        append_log(
+                            f"ReasoningEngine: High-confidence node ({confidence_score:.2f}) missing citations. "
+                            f"Triggering adversarial retry (attempt {json_attempt + 2}/{max_json_retries})"
+                        )
+                        record_event(
+                            level="WARN",
+                            action="reasoner.citation_retry",
+                            message="Adversarial retry triggered for missing citations",
+                            details={"confidence_score": confidence_score, "attempt": json_attempt + 1}
+                        )
+                        last_parse_error = "Missing required citations for high-confidence claim"
+                        continue  # Retry with new prompt
+                    else:
+                        # All retries exhausted, fail the node
+                        error_msg = (
+                            f"Node rejected: High-confidence claim (score={confidence_score:.2f}) "
+                            f"missing required citations. Failed after {max_json_retries} attempts. "
+                            f"Add [Source: cache:<id> | <url>] for factual claims or set speculative: true."
+                        )
+                        append_log(f"ReasoningEngine: {error_msg}")
+                        record_event(
+                            level="ERROR",
+                            action="reasoner.citation_enforcement_failed",
+                            message="Node rejected: missing required citations",
+                            details={"confidence_score": confidence_score, "job_id": job_id}
+                        )
+                        raise ValueError(error_msg)
+                
+                # Determine if node should be marked speculative
                 should_be_speculative = self._should_mark_speculative(
                     confidence_score=confidence_score,
                     context_confidence=context_confidence,

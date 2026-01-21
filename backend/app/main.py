@@ -48,6 +48,7 @@ class StartSimulationPayload(BaseModel):
     mode: str = "Analytical"
     persona: str = "Skeptical Analyst"
     simulate_steps: int = 3
+    seed: Optional[int] = None  # Optional seed for reproducibility
 
 
 class BranchPayload(BaseModel):
@@ -55,6 +56,7 @@ class BranchPayload(BaseModel):
     parent_node_id: str
     action: str
     persona: str = "Optimistic Founder"
+    seed: Optional[int] = None  # Optional seed for reproducibility
 
 
 @app.on_event("shutdown")
@@ -133,11 +135,18 @@ async def simulate_start(payload: StartSimulationPayload):
         # create session record minimal
         db = await get_database()
         sessions = db['sessions']
+        
+        # Generate seed if not provided (for reproducibility)
+        import random
+        import time
+        session_seed = payload.seed if payload.seed is not None else int(time.time() * 1000000) % (2**31)
+        
         session = {
             'session_id': str(payload.prompt)[:8] + '_' + str(int(asyncio.get_event_loop().time())),
             'prompt': payload.prompt,
             'mode': payload.mode,
             'persona': payload.persona,
+            'seed': session_seed,  # Store seed for reproducibility
             'created_at': None,
         }
         await sessions.insert_one(session)
@@ -333,6 +342,7 @@ async def _run_start_job(job_id: str):
         mode = payload.get('mode', 'Analytical')
         persona = payload.get('persona', 'Skeptical Analyst')
         simulate_steps = payload.get('simulate_steps', 3)
+        seed = payload.get('seed')  # Get seed for reproducibility
 
         await update_job(job_id, 'running')
 
@@ -353,6 +363,7 @@ async def _run_start_job(job_id: str):
                     'prompt': prompt,
                     'mode': mode,
                     'persona': persona,
+                    'seed': seed,  # Store seed
                     'created_at': datetime.now(pytz.utc)
                 })
 
@@ -364,7 +375,8 @@ async def _run_start_job(job_id: str):
             mode=mode,
             persona=persona,
             num_steps=simulate_steps,
-            job_id=job_id
+            job_id=job_id,
+            seed=seed  # Pass seed for reproducibility
         )
 
         await update_job(job_id, 'completed', result={'node_id': result['root_node_id'], 'session_id': session_id})
@@ -383,6 +395,7 @@ async def _run_branch_job(job_id: str):
         action = payload.get('action')
         session_id = payload.get('session_id')
         persona = payload.get('persona', 'Optimistic Founder')
+        seed = payload.get('seed')  # Get seed for reproducibility
 
         await update_job(job_id, 'running')
 
@@ -393,7 +406,8 @@ async def _run_branch_job(job_id: str):
             action=action,
             session_id=session_id,
             persona=persona,
-            job_id=job_id
+            job_id=job_id,
+            seed=seed  # Pass seed for reproducibility
         )
 
         await update_job(job_id, 'completed', result={'node_id': result['node_id'], 'session_id': session_id})
