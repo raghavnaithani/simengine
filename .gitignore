@@ -1,30 +1,94 @@
+# Python and environment
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 .env
 .venv/
+venv/
+.Python
+*.egg-info/
+.pytest_cache/
+.coverage/
+htmlcov/
+
+# Node and frontend
 node_modules/
-*.log
-*.sqlite3
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+*.tsbuildinfo
+
+# IDE and OS
 .DS_Store
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
+
+# Docker
 docker-compose.override.yml
 ollama_storage/
 mongo_data/
-# Error logs and generated logs
+
+# Logs and debugging
+*.log
 error_log.txt
 *_test_*.log
 *_last.log
+logs/
+debug/
 
-# Generated simulation results
-scripts/sim_results/
-scripts/session_summary_*.json
-# Exclude all .txt files (except backend/requirements.txt which is needed)
-*.txt
-!backend/requirements.txt
+# Test files and test artifacts (exclude all test-related files)
+backend/tests/
+backend/app/tests/
+backend/app/experiments/
+frontend/test-results/
+frontend/e2e/
+test_main_harness/
+*.test.ts
+*.test.tsx
+*.test.py
+*.spec.ts
+*.spec.tsx
+*.spec.py
 
-# Exclude .env.example
-.env.example
+# Build and generated files
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
 
-# Exclude scripts folder entirely
+# Scripts and automation (exclude all utility scripts)
 scripts/
+*.ps1
+*.sh
+
+# Generated data and reports
+datasets/
+docs/
+HYBRID_FALLBACK_AUDIT_REPORT.md
+FEATURE_STATUS_REPORT.md
+FULL_AUDIT_FINDINGS.md
+FULL_VERSION_ROADMAP_COMPLETION.md
+ROADMAP_VERIFICATION_REPORT.md
+COMPLETION_LOG.txt
+project_log.txt
+
+# Database files
+*.sqlite3
+*.sqlite
+
+# Temporary and cache files
+.cache/
+tmp/
+temp/
+*.tmp
+
+# General exclusions
+.env.example
+*.bak
+*.swp
+*.orig

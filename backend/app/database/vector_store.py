@@ -18,6 +18,7 @@ except Exception:
 COLLECTION = 'global_context'
 # all-MiniLM-L6-v2 produces 384 dimensions. Use this as the canonical default.
 DEFAULT_DIM = 384
+USE_SENTENCE_TRANSFORMER = os.getenv('DGS_USE_SENTENCE_TRANSFORMER', '0') == '1'
 
 # Update MongoDB connection string to use localhost
 MONGO_URL = os.getenv('MONGO_URL', 'mongodb://127.0.0.1:27017')
@@ -36,7 +37,7 @@ def _hash_embedding(text: str, dim: int = DEFAULT_DIM) -> List[float]:
 
 def _ensure_embedder():
     global _EMB_MODEL
-    if not EMBEDDER_AVAILABLE:
+    if not EMBEDDER_AVAILABLE or not USE_SENTENCE_TRANSFORMER:
         return None
     if _EMB_MODEL is None:
         # This model is 80MB and fast. Perfect for CPU/Edge.
@@ -46,7 +47,7 @@ def _ensure_embedder():
 
 def embed_text(text: str, dim: int = DEFAULT_DIM) -> List[float]:
     """Return embedding for text. Uses SentenceTransformer (384 dim) when available, else fallback."""
-    if EMBEDDER_AVAILABLE:
+    if EMBEDDER_AVAILABLE and USE_SENTENCE_TRANSFORMER:
         try:
             model = _ensure_embedder()
             if model is not None:

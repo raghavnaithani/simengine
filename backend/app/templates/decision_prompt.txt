@@ -1,0 +1,125 @@
+# Decision Analysis Prompt (V2 - Structured with Few-Shot)
+
+{persona_prompt}
+
+## Your Task
+
+Analyze the given scenario and provide a structured decision analysis in valid JSON format.
+
+## Scenario
+
+{prompt}
+
+## Evidence
+
+{context_text}
+
+## Output Contract
+
+Return ONLY valid JSON. No markdown. No explanations. Use concise fields and grounded claims.
+
+## Quality Requirements
+
+- Title: 5-10 words, specific, and non-generic.
+- Risks: at least 2 items, each with concrete impact language and no generic filler.
+- Alternatives: at least 2 distinct options with different action_type values.
+- Citations: include at least 1 source, format: [Source: cache:<id> | <url>].
+- speculative: true when evidence is thin or unsupported.
+- Fail closed: if grounding is missing, do not invent evidence; set speculative=true.
+
+## Output Schema
+
+{{
+  "title": "string",
+  "summary": "string",
+  "description": "string",
+  "time_step": 0,
+  "risks": [
+    {{
+      "description": "string",
+      "severity": "Low|Medium|High|Critical",
+      "likelihood": "Low|Medium|High"
+    }}
+  ],
+  "alternatives": [
+    {{
+      "description": "string",
+      "action_type": "string"
+    }}
+  ],
+  "source_citations": ["Source: cache:<id> | <url>"],
+  "speculative": false
+}}
+# V2 Decision Analysis Prompt Template
+
+{persona_prompt}
+
+## Your Task
+
+Analyze the given scenario and provide a structured decision analysis in valid JSON format.
+
+Your analysis MUST include:
+1. **Title**: 5-10 words, specific, unique (not generic like "Strategic Scenario Analysis")
+2. **Risks**: Array of 3+ risks, each with:
+   - `description`: >15 words, specific and concrete (not "General uncertainty")
+   - `severity`: one of Low, Medium, High, Critical
+   - `likelihood`: one of Low, Medium, High
+3. **Alternatives**: Array of 3+ options with:
+   - `description`: concise, actionable
+   - `action_type`: one of Wait, Pivot, Escalate, Delegate, Invest
+4. **Citations**: At least 1 source, format: `[Source: cache:<id> | <url>]`
+
+## Few-Shot Examples
+
+### Example 1: Market Entry Risk
+```json
+{{
+  "title": "International Market Expansion Risk Assessment",
+  "summary": "Evaluate risks and alternatives for entering Asian markets",
+  "description": "Entry into Asian markets presents regulatory, currency, and competitive challenges requiring careful phasing.",
+  "risks": [
+    {{"description": "Regulatory compliance delays in China could postpone launch by 6-12 months, impacting market capture.", "severity": "High", "likelihood": "High"}},
+    {{"description": "Currency volatility could erode margins by 15-20% without hedging strategy.", "severity": "Medium", "likelihood": "Medium"}}
+  ],
+  "alternatives": [
+    {{"description": "Partner with local distributor to reduce regulatory risk", "action_type": "Invest"}},
+    {{"description": "Start with Singapore (lighter regulation) as beachhead", "action_type": "Pivot"}}
+  ],
+  "source_citations": ["[Source: cache:reg_asia_2025 | https://example.com/asia-regs]"]
+}}
+```
+
+### Example 2: Technical Debt
+```json
+{{
+  "title": "Legacy System Refactor Timing & Cost Trade-off",
+  "summary": "Debt accumulation vs. feature velocity",
+  "description": "Technical debt threatens velocity; refactoring costs 3-6 months but enables 2x sprint throughput.",
+  "risks": [
+    {{"description": "Not refactoring: velocity decline accelerates, 40% regression in release cadence over 18 months.", "severity": "High", "likelihood": "High"}},
+    {{"description": "Refactoring now: 3-month feature freeze risks losing market momentum to competitors.", "severity": "High", "likelihood": "Medium"}}
+  ],
+  "alternatives": [
+    {{"description": "Gradual refactor: dedicate 20% team capacity to incremental improvements while shipping features", "action_type": "Pivot"}},
+    {{"description": "Defer 6 months, build new parallel system incrementally", "action_type": "Wait"}}
+  ],
+  "source_citations": ["[Source: cache:tech_debt_2025 | https://example.com/debt-analysis]"]
+}}
+```
+
+## Scenario Context
+
+{context_text}
+
+## Requirements
+
+- Output valid JSON only (no markdown, no explanation before/after)
+- Titles must be unique and actionable; avoid generic terms
+- Risks must be specific with concrete impacts (e.g., "15% margin loss", "6-month delay")
+- Always include 3+ alternatives with different action types
+- Cite sources using format: `[Source: cache:<id> | <url>]`
+- If confidence is low, note assumptions in description field
+
+## Output Format
+
+Return ONLY valid JSON matching the DecisionNode schema.

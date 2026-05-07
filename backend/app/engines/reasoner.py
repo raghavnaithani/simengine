@@ -5,23 +5,137 @@ import asyncio
 import re
 import uuid
 import random
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from datetime import datetime
 
 
 from backend.app.utils.logger import append_log, record_event
 from backend.app.utils.metrics import metrics, track_latency
+from backend.app.utils.token_budget import log_truncation_diagnostics, estimate_token_count
+from backend.app.engines.prompt_builder import PromptBuilder
+from backend.app.experiments.prompt_ab_test import build_variant_suffix, choose_prompt_variant
+from backend.app.utils.quality import annotate_node_quality, compute_quality_score_for_node
+from backend.app.engines.citation_extractor import (
+    build_citation_provenance,
+    summarize_provenance_quality,
+)
 from backend.app.models.schemas import DecisionNode, Risk, Alternative
 from backend.app.database.connection import get_database
 
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434/api/generate")
-MODEL_NAME = os.getenv("OLLAMA_MODEL", "phi3")
-
 
 class ReasoningEngine:
-    def __init__(self, model: str = MODEL_NAME):
-        self.model = model
-    
+    def __init__(self, model: Optional[str] = None):
+        # Read runtime settings at engine creation time so PROFILE-based env
+        # values applied during startup are honored by model calls.
+        self.ollama_url = os.getenv("OLLAMA_URL", "http://ollama:11434/api/generate")
+        self.model = model or os.getenv("OLLAMA_MODEL", "phi3")
+        self.ollama_timeout_seconds = float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "30"))
+        self.ollama_call_max_attempts = int(os.getenv("OLLAMA_CALL_MAX_ATTEMPTS", "2"))
+        self.ollama_json_max_retries = int(os.getenv("OLLAMA_JSON_MAX_RETRIES", "3"))
+        self.ollama_num_predict = int(os.getenv("OLLAMA_NUM_PREDICT", "256"))
+        self.context_max_chunks = int(os.getenv("CONTEXT_MAX_CHUNKS", "4"))
+        self.context_chunk_char_limit = int(os.getenv("CONTEXT_CHUNK_CHAR_LIMIT", "240"))
+
+        # V4 WS1: Profile-based backoff configuration
+        self.backoff_base_seconds = float(os.getenv("BACKOFF_BASE_SECONDS", "2"))
+        self.backoff_multiplier = float(os.getenv("BACKOFF_MULTIPLIER", "2.0"))
+        self.backoff_max_seconds = float(os.getenv("BACKOFF_MAX_SECONDS", "32"))
+        
+        # V4 WS1: Token budget configuration
+        self.prompt_token_budget = int(os.getenv("PROMPT_TOKEN_BUDGET", "1500"))
+        self.model_output_token_budget = int(os.getenv("MODEL_OUTPUT_TOKEN_BUDGET", "250"))
+        self.truncation_warning_threshold = float(os.getenv("TRUNCATION_WARNING_THRESHOLD", "0.85"))
+        self.ensemble_enabled = os.getenv("OLLAMA_ENSEMBLE_ENABLED", "0") == "1"
+        self.ensemble_candidates = max(1, int(os.getenv("OLLAMA_ENSEMBLE_CANDIDATES", "1")))
+
+        append_log(
+            "ReasoningEngine: runtime config "
+            f"model={self.model}, timeout={self.ollama_timeout_seconds}s, "
+            f"call_attempts={self.ollama_call_max_attempts}, "
+            f"json_retries={self.ollama_json_max_retries}, "
+            f"num_predict={self.ollama_num_predict}, "
+            f"context_max_chunks={self.context_max_chunks}, "
+            f"backoff=(base={self.backoff_base_seconds}s, mult={self.backoff_multiplier}, max={self.backoff_max_seconds}s), "
+            f"token_budget=(prompt={self.prompt_token_budget}, output={self.model_output_token_budget})"
+        )
+
+    def _citation_body_from_chunk(self, chunk: Dict[str, Any]) -> Optional[str]:
+        """Return project-guide citation body: cache:<id> | <url>."""
+        if not isinstance(chunk, dict):
+            return None
+
+        cache_id = chunk.get("id") or chunk.get("_id")
+        source_url = chunk.get("source_url") or chunk.get("url")
+        if not cache_id and not source_url:
+            return None
+
+        if cache_id and source_url:
+            return f"cache:{cache_id} | {source_url}"
+        if cache_id:
+            return f"cache:{cache_id}"
+        return str(source_url)
+
+    def _normalize_citation(self, citation: Any) -> Optional[str]:
+        """Normalize model/context citation values to schema-compatible Source: strings."""
+        if citation is None:
+            return None
+        if isinstance(citation, dict):
+            body = self._citation_body_from_chunk(citation)
+            if body is None:
+                body = citation.get("citation") or citation.get("source") or citation.get("source_url")
+        else:
+            body = str(citation).strip()
+
+        if not body:
+            return None
+        if body.startswith("[Source:") and body.endswith("]"):
+            body = body[len("[Source:"):-1].strip()
+        if body.startswith("Source:"):
+            body = body[len("Source:"):].strip()
+
+        if not (body.startswith("cache:") or "http://" in body or "https://" in body):
+            return None
+        return f"Source: {body}"
+
+    def _dedupe_citations(self, citations: List[Any]) -> List[str]:
+        seen = set()
+        normalized: List[str] = []
+        for citation in citations:
+            item = self._normalize_citation(citation)
+            if item and item not in seen:
+                seen.add(item)
+                normalized.append(item)
+        return normalized
+
+    def _context_citations(self, context: Optional[Dict[str, Any]], limit: int = 3) -> List[str]:
+        if not context or not isinstance(context, dict):
+            return []
+        chunks = context.get("chunks") or []
+        return self._dedupe_citations(chunks[:limit])
+
+    def _compact_context(self, context: Optional[Dict[str, Any]]) -> str:
+        """Keep prompt context short and high-signal for lower latency generation.
+
+        Returns ultra-compact text representation instead of JSON to minimize token bloat.
+        """
+        if not context or not isinstance(context, dict):
+            return "No context available."
+
+        chunks = context.get("chunks") or []
+        conf = float(context.get("context_confidence", 0.0))
+
+        lines = [f"[Confidence: {conf:.2f}]"]
+        for i, c in enumerate(chunks[:max(1, self.context_max_chunks)]):
+            content = str(c.get("content", "")).strip()[:self.context_chunk_char_limit]
+            citation_body = self._citation_body_from_chunk(c)
+            if content:
+                if citation_body:
+                    lines.append(f"- [Source: {citation_body}] {content}")
+                else:
+                    lines.append(f"- {content}")
+
+        return "\n".join(lines) if len(lines) > 1 else "No context available."
+
     def _get_persona_prompt(self, persona: str = "Skeptical Analyst") -> str:
         """Get persona-specific prompt text to inject into system prompt."""
         persona_templates = {
@@ -33,32 +147,28 @@ class ReasoningEngine:
         }
         return persona_templates.get(persona, persona_templates["Skeptical Analyst"])
 
-    async def _call_model(self, prompt: str, temperature: float = 0.7, timeout: float = 300.0) -> str:
+    async def _call_model(self, prompt: str, temperature: float = 0.7, timeout: float = 120.0) -> str:
         attempts = 0
-        max_attempts = 3
-        backoff = 1.0
+        max_attempts = max(1, self.ollama_call_max_attempts)
+        # V4 WS1: Use profile-based backoff configuration with capping
+        backoff = self.backoff_base_seconds
 
-        while attempts < max_attempts:
-            attempts += 1
         with track_latency('llm.api_call'):
-            attempts = 0
-            max_attempts = 3
-            backoff = 1.0
-            
             while attempts < max_attempts:
                 attempts += 1
                 try:
-                    append_log(f"ReasoningEngine: model call attempt {attempts}")
+                    append_log(f"ReasoningEngine: model call attempt {attempts}/{max_attempts}, backoff_next={backoff}s")
                     async with httpx.AsyncClient(timeout=timeout) as client:
                         resp = await client.post(
-                            OLLAMA_URL,
+                            self.ollama_url,
                             json={
                                 "model": self.model,
                                 "prompt": prompt,
                                 "stream": False,
                                 "format": "json",
                                 "options": {
-                                    "temperature": min(max(temperature, 0.0), 1.0),  # Clamp to 0.0-1.0
+                                    "temperature": min(max(temperature, 0.0), 1.0),
+                                    "num_predict": max(64, self.ollama_num_predict),
                                 },
                             },
                         )
@@ -75,48 +185,34 @@ class ReasoningEngine:
                         except Exception:
                             pass
                         return resp.text
-                
+
                 except Exception as e:
-                    append_log(f"ReasoningEngine: error on attempt {attempts}: {str(e)}")
-                    record_event(level="ERROR", action="reasoner.call.error", message="model call failed", details={"attempts": attempts, "error": str(e)})
+                    err = str(e) or e.__class__.__name__
+                    append_log(f"ReasoningEngine: error on attempt {attempts}/{max_attempts}: {err}")
+                    record_event(level="ERROR", action="reasoner.call.error", message="model call failed", details={"attempts": attempts, "error": err, "backoff_next": backoff})
                     if attempts == max_attempts:
                         metrics.record_metric(
                             operation='llm.api_call',
                             retry_count=attempts - 1,
                             success=False,
-                            details={'error': str(e)}
+                            details={'error': err}
                         )
-                        raise RuntimeError(f"Model call failed: {str(e)}")
+                        raise RuntimeError(f"Model call failed: {err}")
+                    # V4 WS1: Sleep with exponential backoff, capped at backoff_max_seconds
                     await asyncio.sleep(backoff)
-                    backoff *= 2
-            return ""
-        """Calculate confidence_score from retrieval metrics and validation success.
-        
-        Rules per project guide:
-        - Base score: context_confidence (max similarity from retrieval, 0.0-1.0)
-        - Penalty for validation retries: -0.1 per retry (max 3 retries)
-        - Calibration: if context_confidence < 0.5, cap final score at 0.5
-        - Minimum score: 0.0
-        
-        Args:
-            context_confidence: Max similarity score from retrieval (0.0-1.0)
-            validation_retries: Number of validation retries needed (0-3)
-            
-        Returns:
-            Calibrated confidence score (0.0-1.0)
-        """
-        # Base score from retrieval similarity
+                    backoff = min(backoff * self.backoff_multiplier, self.backoff_max_seconds)
+
+        return ""
+
+    def _calculate_confidence_score(self, context_confidence: float, validation_retries: int) -> float:
+        """Calculate confidence score from retrieval confidence and validation retries."""
         base_score = float(context_confidence)
-        
-        # Penalty for validation failures (each retry reduces confidence)
-        retry_penalty = min(validation_retries * 0.1, 0.3)  # Max 0.3 penalty for 3+ retries
+        retry_penalty = min(validation_retries * 0.1, 0.3)
         adjusted_score = max(0.0, base_score - retry_penalty)
-        
-        # Calibration: if retrieval similarity was low, cap confidence
+
         if base_score < 0.5:
             adjusted_score = min(adjusted_score, 0.5)
-        
-        # Round to 2 decimal places
+
         return round(adjusted_score, 2)
 
     def _should_mark_speculative(
@@ -186,12 +282,29 @@ class ReasoningEngine:
 
     def _janitor_fix_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Aggressively fixes messy AI output to satisfy Pydantic."""
-        if not data.get("id"):
-            data["id"] = str(uuid.uuid4())
+        # Always assign a backend-owned UUID to prevent duplicate React/node keys
+        # when the model repeats an id value across generations.
+        data["id"] = str(uuid.uuid4())
 
-        for field in ["title", "summary", "description"]:
-            if not data.get(field):
-                data[field] = "Content unavailable"
+        if not data.get("description"):
+            data["description"] = (
+                "Generated with partial structured output; details were normalized "
+                "from the model response."
+            )
+
+        # FIX: Handle title as list or non-string (LLM sometimes returns structured formats)
+        title = data.get("title")
+        if isinstance(title, list):
+            # If title is a list (e.g., [{'@type': 'string', 'name': '...'}]), extract first string or use placeholder
+            title = next((t.get("name") if isinstance(t, dict) else str(t) for t in title), None) or "Strategic Scenario Analysis"
+        elif not isinstance(title, str) or not title.strip():
+            title = "Strategic Scenario Analysis"
+        data["title"] = title.strip() if isinstance(title, str) else str(title)
+
+        if not data.get("summary"):
+            data["summary"] = str(data.get("description", "")).strip()[:180] or (
+                "Model provided limited structured content; review details and branch options."
+            )
 
         try:
             val = data.get("time_step")
@@ -215,7 +328,7 @@ class ReasoningEngine:
                 valid_risks.append(r)
 
         if not valid_risks:
-            data["risks"] = [{"description": "General uncertainty.", "severity": "Low", "likelihood": "Low"}]
+            data["risks"] = [{"description": "General uncertainty.", "severity": "Medium", "likelihood": "Medium"}]
         else:
             data["risks"] = valid_risks
 
@@ -231,18 +344,53 @@ class ReasoningEngine:
                 valid_alts.append(a)
         data["alternatives"] = valid_alts
 
-        # FIX 2: Map extracted citations to source_citations field (Citation Enforcement)
-        # Per project guide Section 5: source_citations must be populated from extracted [Source:] tokens
-        if 'citations' in data and isinstance(data['citations'], list) and data['citations']:
-            # Format citations as "Source:<content>" per schemas.py validator requirements (line 110)
-            formatted_citations = [f"Source:{c}" if not c.startswith('Source:') else c 
-                                  for c in data['citations']]
-            data['source_citations'] = formatted_citations
+        citation_candidates: List[Any] = []
+        if isinstance(data.get('source_citations'), list):
+            citation_candidates.extend(data.get('source_citations') or [])
+        if isinstance(data.get('citations'), list):
+            citation_candidates.extend(data.get('citations') or [])
+
+        formatted_citations = self._dedupe_citations(citation_candidates)
+        data['source_citations'] = formatted_citations
+        if formatted_citations:
             append_log(f"ReasoningEngine: Mapped {len(formatted_citations)} citations to source_citations field")
-        elif 'source_citations' not in data:
-            data['source_citations'] = []
 
         return data
+
+    def _quality_gate_issues(self, clean_data: Dict[str, Any]) -> List[str]:
+        """Return a conservative list of output quality issues that should trigger regeneration."""
+        issues: List[str] = []
+
+        title = str(clean_data.get("title", "") or "").strip()
+        generic_titles = {
+            "strategic scenario analysis",
+            "simulation error",
+            "untitled decision",
+            "generated node",
+        }
+        if not title:
+            issues.append("missing title")
+        elif title.lower() in generic_titles:
+            issues.append("generic title")
+
+        risks = clean_data.get("risks") or []
+        if len(risks) < 2:
+            issues.append("fewer than 2 risks")
+        for risk in risks:
+            risk_description = str(getattr(risk, "description", None) or risk.get("description", "") if isinstance(risk, dict) else "").strip()
+            if risk_description and len(risk_description.split()) < 8:
+                issues.append("risk description too short")
+                break
+
+        alternatives = clean_data.get("alternatives") or []
+        if len(alternatives) < 2:
+            issues.append("fewer than 2 alternatives")
+
+        citations = clean_data.get("source_citations") or []
+        if not citations:
+            issues.append("missing citations")
+
+        return issues
 
     def _extract_and_clean_json(self, raw_text: str) -> Dict[str, Any]:
         """Aggressively clean and extract JSON from LLM output with multiple fallback strategies, including citation enforcement."""
@@ -251,71 +399,71 @@ class ReasoningEngine:
 
         clean_text = raw_text.strip()
 
-        # Strategy 1: Remove markdown code blocks
+        # Remove markdown code fences and common invisible characters early
         clean_text = re.sub(r'```json\s*', '', clean_text, flags=re.IGNORECASE)
         clean_text = re.sub(r'```\s*', '', clean_text)
+        clean_text = clean_text.replace('\ufeff', '')  # BOM
         clean_text = clean_text.strip()
 
-        # Strategy 2: Remove ALL control characters (ASCII + Unicode) except newlines/tabs
-        clean_text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', clean_text)
-        clean_text = re.sub(r'[\u0080-\u009f]', '', clean_text)
+        # Remove zero-width and known problematic unicode separators
         clean_text = re.sub(r'[\u200b-\u200f\u2028-\u202f]', '', clean_text)
 
-        # Strategy 3: Remove comments (both // and /* */ style)
+        # Remove comments (both // and /* */ style) and tidy trailing commas
         clean_text = re.sub(r'//.*?$', '', clean_text, flags=re.MULTILINE)
         clean_text = re.sub(r'/\*.*?\*/', '', clean_text, flags=re.DOTALL)
-
-        # Strategy 4: Remove trailing commas before } or ]
         while True:
             new_text = re.sub(r',\s*([}\]])', r'\1', clean_text)
             if new_text == clean_text:
                 break
             clean_text = new_text
 
-        # Extract and remove citation tokens before parsing JSON
-        # Format per project guide Section 7: [Source: cache:<id> | <url>]
+        # Build an "escaped" variant which replaces unescaped control characters
+        # with their unicode escape sequences (\u00XX). This often repairs
+        # malformed JSON where the LLM injected raw control chars.
+        def _escape_control_sequences(text: str) -> str:
+            def esc(m):
+                ch = m.group(0)
+                return "\\u%04x" % ord(ch)
+
+            return re.sub(r'[\x00-\x1f\u0080-\u009f]', esc, text)
+
+        escaped_text = _escape_control_sequences(clean_text)
+
+        # Extract and remove citation tokens before parsing JSON.
         citation_pattern = r'\[Source:\s*([^\]]+)\]'
-        citations = re.findall(citation_pattern, raw_text)
+        citation_matches = re.findall(citation_pattern, raw_text)
+        citations = self._dedupe_citations(citation_matches)
         if citations:
             append_log(f"ReasoningEngine: Detected citations (Source format): {citations}")
 
-        # Debug logging for citation validation
         append_log(f"Validating citations: {citations}")
-        for citation in citations:
-            # Validate format: should be cache:<id> or cache:<id> | url
-            if not (citation.startswith('cache:') or 'http' in citation):
-                append_log(f"Invalid citation detected: {citation}")
-                raise ValueError(f"Invalid citation format: {citation}. Expected [Source: cache:<id> | <url>]")
+        invalid_citations = [
+            citation for citation in citation_matches
+            if not self._normalize_citation(citation)
+        ]
+        if invalid_citations:
+            append_log(f"Invalid citation detected: {invalid_citations[0]}")
+            raise ValueError(
+                f"Invalid citation format: {invalid_citations[0]}. "
+                "Expected [Source: cache:<id> | <url>]"
+            )
 
-        # Remove citation tokens from text
-        raw_text = re.sub(citation_pattern, '', raw_text)  # Remove citation tokens from text
+        # Remove citation tokens from both raw and cleaned text so trailing citation
+        # chips after a JSON object do not break large-output validation.
+        raw_text = re.sub(citation_pattern, '', raw_text).strip()
+        clean_text = re.sub(citation_pattern, '', clean_text).strip()
+        escaped_text = re.sub(citation_pattern, '', escaped_text).strip()
 
-        # Ensure proper JSON formatting for large inputs
-        if raw_text.startswith('{') and raw_text.endswith('}'):
-            try:
-                json.loads(raw_text)  # Validate JSON structure
-            except json.JSONDecodeError as e:
-                append_log(f"ReasoningEngine: Invalid JSON structure detected: {e}")
-                raise ValueError("Invalid JSON structure for large input")
-
-        # Simplified handling for large inputs
-        if len(raw_text) > 1000:  # Arbitrary threshold for large input
+        # Quick sanity checks for very large inputs
+        if len(raw_text) > 1000:
             append_log("ReasoningEngine: Received large input for processing.")
             append_log(f"ReasoningEngine: First 500 characters of input: {raw_text[:500]}")
             append_log(f"ReasoningEngine: Last 500 characters of input: {raw_text[-500:]}")
-            try:
-                json.loads(raw_text)  # Validate JSON structure directly
-            except json.JSONDecodeError as e:
-                append_log(f"ReasoningEngine: Large input validation failed: {e}")
-                raise ValueError("Large input validation failed")
 
-        # Try parsing with progressively more aggressive extraction
+        # Parsing strategies (operate on the provided text string)
         parse_attempts = []
-
-        # Attempt 1: Direct parse
         parse_attempts.append(("direct", lambda t: json.loads(t)))
 
-        # Attempt 2: Extract first complete JSON object (find matching braces)
         def extract_balanced_braces(text):
             start = text.find('{')
             if start == -1:
@@ -332,7 +480,6 @@ class ReasoningEngine:
 
         parse_attempts.append(("balanced_braces", lambda t: json.loads(extract_balanced_braces(t) or "{}")))
 
-        # Attempt 3: Regex extract (find first { ... } block)
         def regex_extract(text):
             match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text, re.DOTALL)
             if match:
@@ -341,7 +488,6 @@ class ReasoningEngine:
 
         parse_attempts.append(("regex_extract", lambda t: json.loads(regex_extract(t) or "{}")))
 
-        # Attempt 4: Find outer braces (simple fallback)
         def outer_braces(text):
             start = text.find('{')
             end = text.rfind('}')
@@ -351,28 +497,34 @@ class ReasoningEngine:
 
         parse_attempts.append(("outer_braces", lambda t: json.loads(outer_braces(t) or "{}")))
 
-        # Try each parsing strategy
+        # Try parsing in order of most-to-least repaired text:
+        # 1) escaped_text (control chars replaced by \uXXXX)
+        # 2) clean_text (comments/trailing commas removed)
+        # 3) raw_text (original)
         last_error = None
-        for strategy_name, parse_func in parse_attempts:
+        for text_name, text_variant in ("escaped", escaped_text), ("clean", clean_text), ("raw", raw_text):
+            for strategy_name, parse_func in parse_attempts:
+                try:
+                    data = parse_func(text_variant)
+                    if isinstance(data, dict) and data:
+                        data['citations'] = citations
+                        append_log(f"ReasoningEngine: JSON parsed successfully using {text_name}/{strategy_name}")
+                        return data
+                except Exception as e:
+                    last_error = e
+                    continue
+
+            # Try decoder with relaxed strict flag as a last attempt on this variant
             try:
-                data = parse_func(clean_text)
-                if isinstance(data, dict) and data:  # Ensure we got a non-empty dict
-                    data['citations'] = citations  # Include citations in the parsed JSON
-                    append_log(f"ReasoningEngine: JSON parsed successfully using strategy: {strategy_name}")
+                decoder = json.JSONDecoder(strict=False)
+                data = decoder.decode(text_variant)
+                if isinstance(data, dict) and data:
+                    data['citations'] = citations
+                    append_log(f"ReasoningEngine: JSON decoded with relaxed decoder on {text_name}")
                     return data
             except Exception as e:
                 last_error = e
                 continue
-
-        # If all attempts failed, try one more time with the original text (maybe it's already clean)
-        try:
-            data = json.loads(raw_text)
-            if isinstance(data, dict):
-                data['citations'] = citations  # Include citations in the parsed JSON
-                append_log(f"ReasoningEngine: JSON parsed from raw text")
-                return data
-        except Exception:
-            pass
 
         raise ValueError(f"JSON parsing failed after all strategies. Last error: {last_error}")
 
@@ -405,6 +557,13 @@ class ReasoningEngine:
                 "Every external claim must include [Source: cache:<id> | <url>] inline. "
                 "Review your text and add citations for all factual assertions."
             )
+
+        elif 'quality gate failed' in error_lower:
+            return (
+                f"{base} Your output parsed but failed quality validation: {error_message[:160]}. "
+                "Produce at least 2 specific risks, at least 2 distinct alternatives, "
+                "a non-generic title, and grounded Source citations."
+            )
         
         # Confidence-specific guidance
         elif 'confidence' in error_lower:
@@ -422,14 +581,199 @@ class ReasoningEngine:
                 "no trailing commas, all braces closed, no control characters."
             )
 
+    def _enforce_grounded_confidence(self, clean_data: Dict[str, Any], job_id: Optional[str] = None) -> None:
+        confidence_score = float(clean_data.get('confidence_score', 0.0) or 0.0)
+        has_citations = bool(clean_data.get('source_citations', []))
+        citation_coverage = float(clean_data.get('citation_coverage', 0.0) or 0.0)
+        citation_quality_score = float(clean_data.get('citation_quality_score', 0.0) or 0.0)
+
+        # Only enforce strict quality checks when a quality score was computed and is low.
+        quality_score_present = 'citation_quality_score' in clean_data
+        if confidence_score >= 0.7 and (
+            not has_citations or citation_coverage < 0.5 or (quality_score_present and citation_quality_score < 0.7)
+        ):
+            clean_data['confidence_score'] = min(confidence_score, 0.49)
+            clean_data['speculative'] = True
+            record_event(
+                level="WARN",
+                action="reasoner.grounding_enforced",
+                message="Downgraded high-confidence node due to weak citation grounding",
+                details={
+                    "job_id": job_id,
+                    "original_confidence": confidence_score,
+                    "new_confidence": clean_data['confidence_score'],
+                    "citation_coverage": citation_coverage,
+                    "citation_quality_score": citation_quality_score,
+                    "has_citations": has_citations,
+                },
+            )
+            return
+
+        # Soft cap: apply when citations exist and either coverage is low or
+        # a computed quality score indicates lower trust.
+        if confidence_score >= 0.5 and has_citations and (
+            citation_coverage < 0.3 or (quality_score_present and citation_quality_score < 0.5)
+        ):
+            clean_data['confidence_score'] = min(confidence_score, 0.59)
+            clean_data['speculative'] = True
+            record_event(
+                level="INFO",
+                action="reasoner.grounding_soft_enforced",
+                message="Applied soft confidence cap due to low citation coverage",
+                details={
+                    "job_id": job_id,
+                    "original_confidence": confidence_score,
+                    "new_confidence": clean_data['confidence_score'],
+                    "citation_coverage": citation_coverage,
+                    "citation_quality_score": citation_quality_score,
+                },
+            )
+
+    def _enforce_provenance_quality(self, clean_data: Dict[str, Any], job_id: Optional[str] = None) -> None:
+        provenance = list(clean_data.get('citation_provenance') or [])
+        if not provenance:
+            return
+
+        summary = summarize_provenance_quality(provenance)
+        clean_data['citation_coverage'] = summary['coverage']
+        clean_data['citation_quality_score'] = summary['quality_score']
+        clean_data['citation_provenance_completeness'] = summary['completeness']
+        clean_data['citation_provenance_matched_count'] = summary['matched_count']
+        clean_data['citation_provenance_unmatched_count'] = summary['unmatched_count']
+
+        if summary['coverage'] < 0.85 or summary['quality_score'] < 0.70:
+            clean_data['speculative'] = True
+            record_event(
+                level="WARN",
+                action="reasoner.provenance_quality_warn",
+                message="Citation provenance below production grounding target",
+                details={
+                    "job_id": job_id,
+                    "coverage": summary['coverage'],
+                    "quality_score": summary['quality_score'],
+                    "matched_count": summary['matched_count'],
+                    "unmatched_count": summary['unmatched_count'],
+                },
+            )
+
+    def _rerank_citations_by_quality(self, clean_data: Dict[str, Any]) -> None:
+        provenance = list(clean_data.get('citation_provenance') or [])
+        if not provenance:
+            return
+
+        ranked = sorted(
+            provenance,
+            key=lambda item: float(item.get('citation_quality_score', 0.0) or 0.0),
+            reverse=True,
+        )
+        clean_data['citation_provenance'] = ranked
+
+        ranked_labels = [item.get('source_label') for item in ranked if item.get('source_label')]
+        normalized = self._dedupe_citations(ranked_labels)
+        if normalized:
+            clean_data['source_citations'] = normalized
+
+    def _build_ensemble_prompt_variants(self, prompt: str) -> List[str]:
+        """Return prompt suffixes for optional multi-prompt ensemble reranking."""
+        if not self.ensemble_enabled or self.ensemble_candidates <= 1:
+            return [""]
+
+        suffixes = [
+            "Focus on grounded evidence, citation completeness, and conservative claims.",
+            "Focus on concrete failure modes, operational risks, and high-signal alternatives.",
+            "Focus on authority, recency, retrieval support, and provenance clarity.",
+            "Focus on concise but distinct alternatives with strong evidence coverage.",
+        ]
+
+        variants = [""]
+        for suffix in suffixes[: max(0, self.ensemble_candidates - 1)]:
+            variants.append(suffix)
+        return variants
+
+    def _score_ensemble_candidate(self, node: DecisionNode) -> float:
+        """Score a candidate node using quality and grounding signals."""
+        quality_score = float(getattr(node, 'quality_score', 0.0) or 0.0)
+        if quality_score <= 0.0:
+            quality_score = compute_quality_score_for_node(node, [])
+
+        citation_quality_score = float(getattr(node, 'citation_quality_score', 0.0) or 0.0)
+        citation_coverage = float(getattr(node, 'citation_coverage', 0.0) or 0.0)
+        confidence_score = float(getattr(node, 'confidence_score', 0.0) or 0.0)
+        novelty_bonus = min(float(getattr(node, 'title_novelty_score', 0.0) or 0.0), 1.0) * 0.05
+        speculative_penalty = 0.12 if getattr(node, 'speculative', False) else 0.0
+
+        score = (
+            0.40 * quality_score
+            + 0.25 * citation_quality_score
+            + 0.20 * citation_coverage
+            + 0.15 * confidence_score
+            + novelty_bonus
+            - speculative_penalty
+        )
+        return round(max(score, 0.0), 3)
+
     async def generate_decision(
+        self,
+        prompt: str,
+        context: Optional[Dict[str, Any]] = None,
+        job_id: Optional[str] = None,
+        persona: str = "Skeptical Analyst",
+        temperature: Optional[float] = None,
+        validation_retries: int = 0,
+    ) -> DecisionNode:
+        """Generate a decision node, optionally reranking ensemble candidates."""
+        if not self.ensemble_enabled or self.ensemble_candidates <= 1:
+            return await self._generate_decision_single(
+                prompt=prompt,
+                context=context,
+                job_id=job_id,
+                persona=persona,
+                temperature=temperature,
+                validation_retries=validation_retries,
+                prompt_suffix="",
+            )
+
+        prompt_suffixes = self._build_ensemble_prompt_variants(prompt)
+        candidates: List[DecisionNode] = []
+
+        for variant_index, prompt_suffix in enumerate(prompt_suffixes, start=1):
+            candidate = await self._generate_decision_single(
+                prompt=prompt,
+                context=context,
+                job_id=job_id,
+                persona=persona,
+                temperature=temperature,
+                validation_retries=validation_retries,
+                prompt_suffix=prompt_suffix,
+            )
+            annotate_node_quality(candidate, [])
+            candidate_score = self._score_ensemble_candidate(candidate)
+            setattr(candidate, "ensemble_candidate_score", candidate_score)
+            setattr(candidate, "created_by_engine", f"ensemble_candidate_{variant_index}")
+            candidates.append(candidate)
+
+        best_candidate = max(candidates, key=self._score_ensemble_candidate)
+        record_event(
+            level="INFO",
+            action="reasoner.ensemble_rerank",
+            message="selected best candidate from ensemble prompts",
+            details={
+                "job_id": job_id,
+                "candidate_count": len(candidates),
+                "best_score": self._score_ensemble_candidate(best_candidate),
+            },
+        )
+        return best_candidate
+
+    async def _generate_decision_single(
         self, 
         prompt: str, 
         context: Optional[Dict[str, Any]] = None, 
         job_id: Optional[str] = None,
         persona: str = "Skeptical Analyst",
         temperature: Optional[float] = None,
-        validation_retries: int = 0  # Track retry count for confidence calculation
+        validation_retries: int = 0,  # Track retry count for confidence calculation
+        prompt_suffix: str = "",
     ) -> DecisionNode:
         with track_latency('llm.generate'):
             # Sample temperature if not provided (0.5-0.8 range per spec)
@@ -440,28 +784,49 @@ class ReasoningEngine:
             context_confidence = 0.0
             if context and isinstance(context, dict):
                 context_confidence = context.get('context_confidence', 0.0)
+            compact_context = self._compact_context(context)
+            prompt_experiment_variant = choose_prompt_variant(job_id or prompt)
             
-            # Get persona prompt
-            persona_text = self._get_persona_prompt(persona)
+            # Build the structured V2 prompt first, then fall back to the compact
+            # inline prompt if the template loader fails for any reason.
+            try:
+                full_prompt = PromptBuilder.build_v2_prompt(
+                    prompt=prompt,
+                    context_text=compact_context,
+                    persona=persona,
+                    use_template=True,
+                )
+                full_prompt = f"{full_prompt}{build_variant_suffix(prompt_experiment_variant)}"
+                if prompt_suffix:
+                    full_prompt = f"{full_prompt}\n\nENSEMBLE FOCUS:\n{prompt_suffix}"
+            except Exception as prompt_error:
+                append_log(f"ReasoningEngine: V2 prompt builder failed: {prompt_error}")
+                persona_text = self._get_persona_prompt(persona)
+                instruction = (
+                    f"You are a strategic simulation engine. {persona_text}\n\n"
+                    "CRITICAL RULES:\n"
+                    "1. You MUST respond with ONLY valid JSON. No explanatory text, no markdown, no code blocks.\n"
+                    "2. Start your response with {{ and end with }}. Nothing else.\n"
+                    "3. Schema: {title, summary, description, risks: [{description, severity (Low/Medium/High), likelihood (Low/Medium/High)}], alternatives: [{description, action_type}], source_citations: [string], speculative: boolean}\n"
+                    "4. Use only sources shown in CONTEXT. Every factual claim should cite them with [Source: cache:<id> | <url>]. Also copy each used citation into source_citations as \"Source: cache:<id> | <url>\".\n"
+                    "5. If claim cannot be grounded, set speculative: true.\n"
+                    "6. Keep each text field concise (1-2 sentences max).\n"
+                    "7. Ensure all strings are properly quoted, all commas are correct, no trailing commas."
+                )
+                full_prompt = f"{instruction}\n\nSCENARIO: {prompt}\n\nCONTEXT:\n{compact_context}\n\nJSON OUTPUT:"
+                full_prompt = f"{full_prompt}{build_variant_suffix(prompt_experiment_variant)}"
         
-        # Enhanced instruction with stronger JSON emphasis
-        instruction = (
-            f"You are a strategic simulation engine. {persona_text}\n\n"
-            "CRITICAL RULES:\n"
-            "1. You MUST respond with ONLY valid JSON. No explanatory text, no markdown, no code blocks.\n"
-            "2. Start your response with {{ and end with }}. Nothing else.\n"
-            "3. Schema: {id, title, summary, description, time_step (int), "
-            "risks: [{description, severity (Low/Medium/High/Critical), likelihood (Low/Medium/High)}], "
-            "alternatives: [{description, action_type}]}\n"
-            "4. Every factual claim should ideally include [Source: cache:<id> | <url>] inline where used.\n"
-            "5. If claim cannot be grounded, set speculative: true.\n"
-            "6. Ensure all strings are properly quoted, all commas are correct, no trailing commas."
+        # V4 WS1: Log token budget diagnostics for the built prompt
+        token_diags = log_truncation_diagnostics(
+            full_prompt,
+            self.prompt_token_budget,
+            self.truncation_warning_threshold,
+            context_name="full_prompt"
         )
-
-        full_prompt = f"{instruction}\n\nSCENARIO: {prompt}\n\nCONTEXT: {json.dumps(context or {}, default=str)}\n\nJSON OUTPUT:"
         
         # Retry logic for JSON parsing with progressively clearer instructions
-        max_json_retries = 3
+        # V2: adversarial retry logic is capped at 3 attempts to fail closed.
+        max_json_retries = min(3, max(1, self.ollama_json_max_retries))
         body = None
         last_parse_error = None
         
@@ -477,15 +842,69 @@ class ReasoningEngine:
                 else:
                     retry_prompt = full_prompt
                 
-                body = await self._call_model(retry_prompt, temperature=temperature, timeout=300.0)
+                body = await self._call_model(
+                    retry_prompt,
+                    temperature=temperature,
+                    timeout=self.ollama_timeout_seconds,
+                )
                 append_log(f"ReasoningEngine: raw output len={len(body)} (attempt {json_attempt + 1})")
                 record_event(level="INFO", action="reasoner.raw_output", message="raw output received", details={"job_id": job_id, "length": len(body), "attempt": json_attempt + 1})
+
+                # V4 WS1: Log token diagnostics for model output
+                output_token_diags = log_truncation_diagnostics(
+                    body,
+                    self.model_output_token_budget,
+                    self.truncation_warning_threshold,
+                    context_name="model_output"
+                )
 
                 # Extract and clean JSON
                 data = self._extract_and_clean_json(body)
                 
                 # If we got here, JSON parsing succeeded
                 clean_data = self._janitor_fix_data(data)
+
+                if not clean_data.get('source_citations'):
+                    context_citations = self._context_citations(context)
+                    if context_citations:
+                        clean_data['source_citations'] = context_citations
+                        append_log(
+                            "ReasoningEngine: Added context citations because model omitted "
+                            "source_citations"
+                        )
+                        record_event(
+                            level="WARN",
+                            action="reasoner.context_citations_applied",
+                            message="Model omitted citations; using retrieved context citations",
+                            details={"job_id": job_id, "citation_count": len(context_citations)}
+                        )
+
+                context_chunks = []
+                if context and isinstance(context, dict):
+                    context_chunks = context.get('chunks') or []
+                clean_data['citation_provenance'] = build_citation_provenance(
+                    clean_data.get('source_citations', []),
+                    context_chunks,
+                )
+                clean_data['prompt_experiment_variant'] = prompt_experiment_variant
+                clean_data['prompt_experiment_batch_id'] = job_id
+                self._rerank_citations_by_quality(clean_data)
+                self._enforce_provenance_quality(clean_data=clean_data, job_id=job_id)
+
+                quality_issues = self._quality_gate_issues(clean_data)
+                if quality_issues:
+                    last_parse_error = f"Quality gate failed: {', '.join(quality_issues)}"
+                    append_log(f"ReasoningEngine: {last_parse_error}")
+                    record_event(
+                        level="WARN",
+                        action="reasoner.quality_gate_failed",
+                        message="parsed output failed quality gates",
+                        details={"job_id": job_id, "issues": quality_issues, "attempt": json_attempt + 1},
+                    )
+                    if json_attempt < max_json_retries - 1:
+                        await asyncio.sleep(0.5 * (json_attempt + 1))
+                        continue
+                    raise ValueError(last_parse_error)
                 
                 # Calculate confidence_score from retrieval metrics and validation success
                 confidence_score = self._calculate_confidence_score(
@@ -493,49 +912,9 @@ class ReasoningEngine:
                     validation_retries=validation_retries
                 )
                 clean_data['confidence_score'] = confidence_score
-                
-                # FIX 3: Enforce citation requirement per project guide Section 9
-                # "ReasoningEngine must fail a node if required citations are missing for claims that exceed confidence threshold"
+                self._enforce_grounded_confidence(clean_data=clean_data, job_id=job_id)
+                confidence_score = float(clean_data.get('confidence_score', confidence_score))
                 has_citations = bool(clean_data.get('source_citations', []))
-                if confidence_score >= 0.5 and not has_citations:
-                    # High-confidence node without citations - trigger adversarial retry
-                    if json_attempt < max_json_retries - 1:
-                        retry_instruction = (
-                            f"\n\nCRITICAL CITATION REQUIREMENT: Your claim has HIGH confidence ({confidence_score:.2f}) "
-                            f"but NO CITATIONS. Per project rules:\n"
-                            f"  1. You MUST include [Source: cache:<id> | <url>] for EVERY external claim\n"
-                            f"  2. If you cannot ground a claim, set speculative: true and include [Source: speculative]\n"
-                            f"  3. Re-examine each claim in description and alternatives\n"
-                            f"Retry now with proper citations for all factual claims."
-                        )
-                        retry_prompt = f"{full_prompt}{retry_instruction}\n\nJSON OUTPUT:"
-                        append_log(
-                            f"ReasoningEngine: High-confidence node ({confidence_score:.2f}) missing citations. "
-                            f"Triggering adversarial retry (attempt {json_attempt + 2}/{max_json_retries})"
-                        )
-                        record_event(
-                            level="WARN",
-                            action="reasoner.citation_retry",
-                            message="Adversarial retry triggered for missing citations",
-                            details={"confidence_score": confidence_score, "attempt": json_attempt + 1}
-                        )
-                        last_parse_error = "Missing required citations for high-confidence claim"
-                        continue  # Retry with new prompt
-                    else:
-                        # All retries exhausted, fail the node
-                        error_msg = (
-                            f"Node rejected: High-confidence claim (score={confidence_score:.2f}) "
-                            f"missing required citations. Failed after {max_json_retries} attempts. "
-                            f"Add [Source: cache:<id> | <url>] for factual claims or set speculative: true."
-                        )
-                        append_log(f"ReasoningEngine: {error_msg}")
-                        record_event(
-                            level="ERROR",
-                            action="reasoner.citation_enforcement_failed",
-                            message="Node rejected: missing required citations",
-                            details={"confidence_score": confidence_score, "job_id": job_id}
-                        )
-                        raise ValueError(error_msg)
                 
                 # Determine if node should be marked speculative
                 should_be_speculative = self._should_mark_speculative(
@@ -567,6 +946,7 @@ class ReasoningEngine:
                     db = await get_database()
                     await db["model_responses"].insert_one({
                         "job_id": job_id,
+                        "prompt_experiment_variant": prompt_experiment_variant,
                         "raw": body,
                         "clean": clean_data,
                         "node": node.model_dump(),
@@ -641,9 +1021,10 @@ class ReasoningEngine:
                         title="Simulation Error",
                         summary="The AI returned invalid data after multiple retry attempts.",
                         description=f"System recovered from error: {last_parse_error}",
-                        risks=[Risk(description="System instability", severity="Low", likelihood="Low")],
+                        risks=[Risk(description="Critical simulation instability due to invalid model output", severity="High", likelihood="High")],
                         alternatives=[],
                         confidence_score=error_confidence,
+                        speculative=True,
                     )
                 else:
                     # Wait a bit before retry (exponential backoff)
@@ -657,7 +1038,8 @@ class ReasoningEngine:
             title="Simulation Error",
             summary="The AI returned invalid data.",
             description="System recovered from error: Unexpected failure in JSON parsing retry loop",
-            risks=[Risk(description="System instability", severity="Low", likelihood="Low")],
+            risks=[Risk(description="Critical simulation instability due to invalid model output", severity="High", likelihood="High")],
             alternatives=[],
             confidence_score=error_confidence,
+            speculative=True,
         )

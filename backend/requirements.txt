@@ -2,8 +2,7 @@ fastapi
 uvicorn
 motor
 httpx
-crawl4ai
 pydantic
-sentence-transformers
+pytz
 pytest
 pytest-asyncio

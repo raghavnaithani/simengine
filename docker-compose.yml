@@ -35,13 +35,14 @@ services:
     # For development you can re-enable the bind mount below if your environment supports it.
     # volumes:
     #   - ./backend:/app
-    # Run without the reload watcher so uvicorn won't stat the /app mount continuously.
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    # Run without reload watcher.
+    command: ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     depends_on:
       - mongo
       - ollama
     environment:
-      - MONGO_URL=mongodb://127.0.0.1:27017
+      - PROFILE=${PROFILE:-local}
+      - MONGO_URL=mongodb://mongo:27017
       - OLLAMA_URL=http://ollama:11434/api/generate
       - OLLAMA_MODEL=phi3
     # CRITICAL: Memory limits for Headless Browser (Scraper) safety

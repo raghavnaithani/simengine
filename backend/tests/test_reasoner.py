@@ -296,3 +296,92 @@ def test_not_speculative_with_citations(reasoning_engine):
         validation_retries=0
     )
     assert should_be_speculative == False, "Node with citations and good confidence should not be speculative"
+
+
+def test_context_citations_are_available_for_model_omissions(reasoning_engine):
+    """Retrieved chunks can provide citations when the model omits them."""
+    context = {
+        "context_confidence": 0.86,
+        "chunks": [
+            {
+                "id": "chunk-1",
+                "source_url": "https://example.com/source",
+                "content": "Evidence text for the scenario.",
+            }
+        ],
+    }
+
+    assert reasoning_engine._context_citations(context) == [
+        "Source: cache:chunk-1 | https://example.com/source"
+    ]
+    assert "[Source: cache:chunk-1 | https://example.com/source]" in reasoning_engine._compact_context(context)
+
+
+def test_source_citations_json_field_is_normalized(reasoning_engine):
+    """Model-provided source_citations survive janitor normalization."""
+    data = {
+        "title": "Test",
+        "summary": "Test",
+        "description": "Test description",
+        "time_step": 0,
+        "risks": [{"description": "Risk", "severity": "Low", "likelihood": "Low"}],
+        "alternatives": [],
+        "source_citations": ["Source: cache:id123 | https://example.com/page"],
+    }
+
+    clean_data = reasoning_engine._janitor_fix_data(data)
+    assert clean_data["source_citations"] == [
+        "Source: cache:id123 | https://example.com/page"
+    ]
+
+
+def test_grounding_enforcement_downgrades_uncovered_high_confidence(reasoning_engine):
+    clean_data = {
+        "source_citations": ["Source: cache:abc | https://example.com"],
+        "citation_coverage": 0.2,
+        "confidence_score": 0.88,
+        "speculative": False,
+    }
+
+    reasoning_engine._enforce_grounded_confidence(clean_data)
+
+    assert clean_data["confidence_score"] <= 0.49
+    assert clean_data["speculative"] is True
+
+
+def test_grounding_enforcement_preserves_well_grounded_confidence(reasoning_engine):
+    clean_data = {
+        "source_citations": ["Source: cache:abc | https://example.com"],
+        "citation_coverage": 0.9,
+        "confidence_score": 0.82,
+        "speculative": False,
+    }
+
+    reasoning_engine._enforce_grounded_confidence(clean_data)
+
+    assert clean_data["confidence_score"] == 0.82
+    assert clean_data["speculative"] is False
+
+
+def test_rerank_citations_by_quality_orders_best_first(reasoning_engine):
+    clean_data = {
+        "source_citations": [
+            "Source: cache:low | https://low.example.com",
+            "Source: cache:high | https://high.example.com",
+        ],
+        "citation_provenance": [
+            {
+                "source_label": "Source: cache:low | https://low.example.com",
+                "citation_quality_score": 0.25,
+            },
+            {
+                "source_label": "Source: cache:high | https://high.example.com",
+                "citation_quality_score": 0.92,
+            },
+        ],
+    }
+
+    reasoning_engine._rerank_citations_by_quality(clean_data)
+
+    assert clean_data["citation_provenance"][0]["citation_quality_score"] == 0.92
+    assert clean_data["source_citations"][0] == "Source: cache:high | https://high.example.com"

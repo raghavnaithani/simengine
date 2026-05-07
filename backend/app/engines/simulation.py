@@ -10,12 +10,14 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 import uuid
 import random
+import hashlib
 
 from backend.app.database.connection import get_database
 from backend.app.engines.scraper import ContextBuilder
 from backend.app.engines.reasoner import ReasoningEngine
 from backend.app.models.schemas import DecisionNode
 from backend.app.utils.logger import append_log, record_event
+from backend.app.utils.quality import annotate_node_quality
 
 
 class SimulationEngine:
@@ -24,6 +26,28 @@ class SimulationEngine:
     def __init__(self):
         self.context_builder = ContextBuilder()
         self.reasoning_engine = ReasoningEngine()
+
+    def _compute_content_hash(self, title: str, summary: str, description: str) -> str:
+        """Compute SHA-256 hash of node content for idempotency detection.
+        
+        Per project guide: "branch creation must be safe under retries 
+        (check for duplicate child nodes by content hash)."
+        
+        Args:
+            title: Node title
+            summary: Node summary
+            description: Node description
+            
+        Returns:
+            Hex SHA-256 hash of concatenated content
+        """
+        content = f"{title}||{summary}||{description}"
+        return hashlib.sha256(content.encode('utf-8')).hexdigest()
+
+    async def _recent_session_nodes(self, session_id: str, limit: int = 5) -> List[Dict[str, Any]]:
+        db = await get_database()
+        nodes_coll = db['decision_nodes']
+        return await nodes_coll.find({'session_id': session_id}).sort('created_at', -1).limit(limit).to_list(length=limit)
 
     async def build_initial_world(
         self,
@@ -81,6 +105,11 @@ class SimulationEngine:
                     details={"seed": seed, "session_id": session_id}
                 )
 
+            # Fast mode keeps initial response under typical UX SLA.
+            mode_normalized = str(mode or "").strip().lower()
+            if mode_normalized == "quick":
+                num_steps = min(max(1, int(num_steps)), 2)
+
             # Step 4: Sample temperature per session (0.5-0.8 range per spec) - reuse for all nodes in this session
             temperature = round(random.uniform(0.5, 0.8), 2)
 
@@ -93,11 +122,16 @@ class SimulationEngine:
                 temperature=temperature
             )
             root_node.time_step = 0
+            annotate_node_quality(root_node, await self._recent_session_nodes(session_id))
 
             # Persist root node
             db = await get_database()
             nodes_coll = db['decision_nodes']
-            await nodes_coll.insert_one(root_node.model_dump())
+            root_node_doc = root_node.model_dump()
+            root_node_doc['session_id'] = session_id
+            if job_id:
+                root_node_doc['job_id'] = job_id
+            await nodes_coll.insert_one(root_node_doc)
 
             node_ids = [root_node.id]
             current_node = root_node
@@ -117,9 +151,14 @@ class SimulationEngine:
                     temperature=temperature
                 )
                 next_node.time_step = step
+                annotate_node_quality(next_node, await self._recent_session_nodes(session_id))
 
                 # Persist node and create edge
-                await nodes_coll.insert_one(next_node.model_dump())
+                next_node_doc = next_node.model_dump()
+                next_node_doc['session_id'] = session_id
+                if job_id:
+                    next_node_doc['job_id'] = job_id
+                await nodes_coll.insert_one(next_node_doc)
                 edges_coll = db['edges']
                 await edges_coll.insert_one({
                     'from': current_node.id,
@@ -258,11 +297,54 @@ class SimulationEngine:
             # Set time step (increment from parent)
             parent_time_step = parent.get('time_step', 0)
             child_node.time_step = parent_time_step + 1
+            annotate_node_quality(child_node, await self._recent_session_nodes(session_id))
 
-            # Step 6: Persist child node
-            await nodes_coll.insert_one(child_node.model_dump())
+            # Step 7: IDEMPOTENCY CHECK - Prevent duplicate child nodes (project guide requirement)
+            # Compute content hash to detect if this exact node was already created
+            content_hash = self._compute_content_hash(
+                child_node.title,
+                child_node.summary,
+                child_node.description
+            )
+            
+            # Check if a child with same content hash already exists under this parent
+            existing_child = await nodes_coll.find_one({
+                'parent_id': parent_node_id,
+                'content_hash': content_hash,
+                'session_id': session_id
+            })
+            
+            if existing_child:
+                record_event(
+                    level="INFO",
+                    action="simulation.branch.duplicate_prevented",
+                    message=f"Duplicate child prevented via content hash",
+                    details={
+                        "parent_id": parent_node_id,
+                        "existing_child_id": existing_child['id'],
+                        "content_hash": content_hash,
+                        "session_id": session_id
+                    }
+                )
+                
+                # Return the existing child (idempotent behavior)
+                return {
+                    'node_id': existing_child['id'],
+                    'edge_id': existing_child.get('edge_id', 'N/A'),
+                    'status': 'already_exists',
+                    'game_over': existing_child.get('game_over', False)
+                }
+            
+            # Step 8: Persist child node with content hash for future idempotency checks
+            child_node_doc = child_node.model_dump()
+            child_node_doc['session_id'] = session_id
+            child_node_doc['parent_id'] = parent_node_id  # Track parent for idempotency queries
+            child_node_doc['content_hash'] = content_hash  # Store hash for duplicate detection
+            if job_id:
+                child_node_doc['job_id'] = job_id
+            await nodes_coll.insert_one(child_node_doc)
 
-            # Step 7: Create edge
+            # Step 9: Create edge
             edges_coll = db['edges']
             edge_doc = {
                 'from': parent_node_id,
@@ -272,8 +354,14 @@ class SimulationEngine:
                 'created_at': datetime.now(timezone.utc)
             }
             edge_result = await edges_coll.insert_one(edge_doc)
+            
+            # Store edge ID in node doc for idempotency lookup
+            await nodes_coll.update_one(
+                {'id': child_node.id},
+                {'$set': {'edge_id': str(edge_result.inserted_id)}}
+            )
 
-            # Step 7: Check for terminal state
+            # Step 10: Check for terminal state
             is_terminal = await self._is_terminal_state(child_node)
             if is_terminal:
                 await nodes_coll.update_one(
@@ -281,7 +369,7 @@ class SimulationEngine:
                     {'$set': {'game_over': True, 'game_over_reason': 'Terminal state detected'}}
                 )
 
-            # Step 8: Update session metadata
+            # Step 11: Update session metadata
             sessions_coll = db['sessions']
             await sessions_coll.update_one(
                 {'session_id': session_id},

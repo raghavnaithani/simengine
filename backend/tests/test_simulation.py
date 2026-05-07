@@ -51,6 +51,13 @@ def mock_db_fixture(patch_all_external_calls):
     # Create collection mocks
     decision_nodes = AsyncMock()
     decision_nodes.insert_one = AsyncMock(return_value=None)
+    decision_nodes.find_one = AsyncMock(return_value=None)
+
+    decision_nodes_cursor = MagicMock()
+    decision_nodes_cursor.sort = MagicMock(return_value=decision_nodes_cursor)
+    decision_nodes_cursor.limit = MagicMock(return_value=decision_nodes_cursor)
+    decision_nodes_cursor.to_list = AsyncMock(return_value=[])
+    decision_nodes.find = MagicMock(return_value=decision_nodes_cursor)
     
     edges = AsyncMock()
     edges.insert_one = AsyncMock(return_value=None)
