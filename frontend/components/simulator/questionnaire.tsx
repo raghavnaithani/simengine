@@ -33,6 +33,8 @@ interface PromptEntities {
   mentioned_constraints: string[]
   business_stage: string
   problem_statement: string
+  inferred_goal: string | null
+  inferred_uncertainty: string | null
 }
 
 function extractPromptEntities(prompt: string): PromptEntities {
@@ -42,6 +44,8 @@ function extractPromptEntities(prompt: string): PromptEntities {
   const targetMatch = prompt.match(/(?:for|target|serve|help)\s+([^.,;]+?)(?:\s+(?:to|who|that|in)|\.|,|$)/i)
   const featureMatch = prompt.match(/(?:with|using|featuring|includes?|provides?)\s+([^.,;]+?)(?:\.|,|$)/i)
   const problemMatch = prompt.match(/(?:problem|challenge|help|solve|address)\s+([^.,;]+?)(?:\.|,|$)/i)
+  const goalMatch = prompt.match(/(?:goal|aim|objective|want to|trying to|looking to)\s+([^.,;]+?)(?:\.|,|$)/i)
+  const uncertaintyMatch = prompt.match(/(?:not sure|unclear|unsure|confused about|need to know|question is)\s+([^.,;]+?)(?:\.|,|$)/i)
   
   return {
     target_users: targetMatch ? targetMatch[1].trim() : null,
@@ -51,6 +55,8 @@ function extractPromptEntities(prompt: string): PromptEntities {
     mentioned_constraints: extractConstraints(prompt),
     business_stage: inferBusinessStage(prompt),
     problem_statement: problemMatch ? problemMatch[1].trim() : prompt.slice(0, 100),
+    inferred_goal: goalMatch ? goalMatch[1].trim() : null,
+    inferred_uncertainty: uncertaintyMatch ? uncertaintyMatch[1].trim() : null,
   }
 }
 
@@ -109,88 +115,190 @@ function inferBusinessStage(prompt: string): string {
   return 'idea/exploration'
 }
 
-// Generate targeted clarifying questions based on what's MISSING from the prompt
-function generateSmartQuestions(prompt: string): ClarifyingQuestion[] {
+function normalizeLabel(value: string | null, fallback: string): string {
+  if (!value) return fallback
+  const cleaned = value.trim().replace(/\s+/g, ' ')
+  return cleaned.length > 80 ? `${cleaned.slice(0, 77)}...` : cleaned
+}
+
+function addQuestion(
+  questions: ClarifyingQuestion[],
+  seen: Set<string>,
+  question: ClarifyingQuestion,
+) {
+  if (seen.has(question.question)) return
+  seen.add(question.question)
+  questions.push(question)
+}
+
+// Generate targeted clarifying questions based on what the prompt already says and what it leaves out
+export function generateSmartQuestions(prompt: string): ClarifyingQuestion[] {
   const entities = extractPromptEntities(prompt)
   const questions: ClarifyingQuestion[] = []
-  
-  // Question 1: Timeline (always needed for decision tree)
-  questions.push({
-    id: 'q_timeline',
-    question: 'What is your decision timeline?',
-    type: 'single',
-    options: ['3 months (Quick validation)', '6 months (Balanced exploration)', '12 months (Deep strategic planning)'],
-  })
-  
-  // Question 2: Clarify target users if not mentioned
-  if (!entities.target_users) {
-    questions.push({
-      id: 'q_target_users',
-      question: `Who specifically are you targeting with "${entities.product_type || 'your solution'}"?`,
+  const seen = new Set<string>()
+
+  const productLabel = normalizeLabel(entities.product_type, 'your idea')
+  const audienceLabel = normalizeLabel(entities.target_users, 'the people you want to serve')
+  const marketLabel = normalizeLabel(entities.target_market, 'the market')
+  const stageLabel = entities.business_stage.replace('/', ' / ')
+
+  const orderedQuestions: ClarifyingQuestion[] = []
+
+  if (entities.target_market || entities.target_users) {
+    orderedQuestions.push({
+      id: 'q_market',
+      question: entities.target_market
+        ? `How does this fit into ${marketLabel} specifically?`
+        : `Who exactly is ${productLabel} for?`,
+      type: 'text',
+    })
+  } else if (entities.inferred_goal) {
+    orderedQuestions.push({
+      id: 'q_outcome',
+      question: `You said you want to ${entities.inferred_goal}. What does success look like in one sentence?`,
       type: 'text',
     })
   } else {
-    questions.push({
-      id: 'q_target_clarity',
-      question: `You mentioned targeting ${entities.target_users}. What's the primary pain point you're solving for them?`,
+    orderedQuestions.push({
+      id: 'q_outcome',
+      question: `What outcome do you want ${productLabel} to achieve?`,
       type: 'text',
     })
   }
-  
-  // Question 3: Market validation status
-  questions.push({
-    id: 'q_validation',
-    question: `What's your current validation status for the ${entities.business_stage} stage?`,
-    type: 'single',
-    options: [
-      'Haven\'t validated yet',
-      'Preliminary customer feedback received',
-      'Paying customers or strong commitment signals',
-      'Proven demand with traction'
-    ],
-  })
-  
-  // Question 4: Key uncertainty based on what's missing
-  const uncertaintyOptions = getUncertaintyOptions(entities)
-  if (uncertaintyOptions.length > 0) {
-    questions.push({
-      id: 'q_uncertainty',
-      question: `What's your biggest uncertainty right now?`,
-      type: 'single',
-      options: uncertaintyOptions,
-    })
-  }
-  
-  // Question 5: Go-to-market / distribution approach
-  questions.push({
-    id: 'q_distribution',
-    question: `How are you planning to reach and acquire your ${entities.target_users || 'customers'}?`,
+
+  orderedQuestions.push({
+    id: 'q_scope',
+    question: entities.product_type
+      ? `What is inside the scope for ${productLabel}, and what is definitely out of scope?`
+      : 'What is the smallest version of this idea that would still be useful?',
     type: 'text',
   })
-  
-  return questions
-}
 
-function getUncertaintyOptions(entities: PromptEntities): string[] {
-  const options = []
-  
-  if (!entities.target_market) {
-    options.push('Which market segment to target')
+  orderedQuestions.push({
+    id: 'q_audience',
+    question: entities.target_users
+      ? `You mentioned ${audienceLabel}. Which specific subgroup matters most first?`
+      : `Who exactly is ${productLabel} for?`,
+    type: 'text',
+  })
+
+  orderedQuestions.push({
+    id: 'q_market',
+    question: entities.target_market
+      ? `How does this fit into ${marketLabel} specifically?`
+      : 'Which market or segment should this focus on first?',
+    type: 'single',
+    options: [
+      'A niche segment with a painful problem',
+      'A broad market with strong growth',
+      'An existing market I want to disrupt',
+    ],
+  })
+
+  orderedQuestions.push({
+    id: 'q_stage',
+    question: `Where are you in the ${stageLabel} stage right now?`,
+    type: 'single',
+    options: [
+      'Still shaping the idea',
+      'Building or validating an MVP',
+      'Already live and learning from users',
+    ],
+  })
+
+  orderedQuestions.push({
+    id: 'q_constraints',
+    question: entities.mentioned_constraints.length > 0
+      ? `You mentioned ${entities.mentioned_constraints[0]}. What is the biggest constraint that will shape the decision?`
+      : 'What is the biggest constraint on this decision?',
+    type: 'single',
+    options: [
+      'Budget or funding',
+      'Team size or expertise',
+      'Time / deadline pressure',
+      'Legal, privacy, or compliance limits',
+    ],
+  })
+
+  orderedQuestions.push({
+    id: 'q_risk',
+    question: entities.inferred_uncertainty
+      ? `You seem unsure about ${entities.inferred_uncertainty}. What is the main risk behind that?`
+      : 'What is the main thing that could cause this to fail?',
+    type: 'text',
+  })
+
+  orderedQuestions.push({
+    id: 'q_validation',
+    question: entities.key_features.length > 0
+      ? `Which of these matters most for the first version: ${entities.key_features.slice(0, 3).join(', ')}?`
+      : 'What should the first version prove to you?',
+    type: 'single',
+    options: [
+      'Users really want it',
+      'It is technically feasible',
+      'It is commercially viable',
+    ],
+  })
+
+  orderedQuestions.push({
+    id: 'q_distribution',
+    question: `How will you reach ${audienceLabel} once this is ready?`,
+    type: 'text',
+  })
+
+  orderedQuestions.push({
+    id: 'q_success_metric',
+    question: 'What metric or signal would convince you this is the right direction?',
+    type: 'single',
+    options: [
+      'User engagement or retention',
+      'Revenue or paid conversions',
+      'Customer feedback or requests',
+      'Internal efficiency or time saved',
+    ],
+  })
+
+  for (const question of orderedQuestions) {
+    if (questions.length >= 5) break
+    if (question.id === 'q_scope' && !entities.product_type && !entities.inferred_goal) continue
+    if (question.id === 'q_market' && !entities.target_market && !entities.target_users) {
+      addQuestion(questions, seen, question)
+      continue
+    }
+    if (question.id === 'q_validation' && entities.business_stage === 'idea/exploration') {
+      addQuestion(questions, seen, question)
+      continue
+    }
+    addQuestion(questions, seen, question)
   }
-  if (!entities.target_users) {
-    options.push('Who exactly will use this')
+
+  const fallbackQuestions: ClarifyingQuestion[] = [
+    {
+      id: 'q_timeline',
+      question: 'What is your decision timeline?',
+      type: 'single',
+      options: ['3 months (Quick validation)', '6 months (Balanced exploration)', '12 months (Deep strategic planning)'],
+    },
+    {
+      id: 'q_tradeoff',
+      question: 'If you had to optimize for only one thing, what would it be?',
+      type: 'single',
+      options: ['Speed', 'Quality', 'Cost', 'Learning'],
+    },
+    {
+      id: 'q_differentiation',
+      question: 'What makes this meaningfully different from existing alternatives?',
+      type: 'text',
+    },
+  ]
+
+  for (const question of fallbackQuestions) {
+    if (questions.length >= 5) break
+    addQuestion(questions, seen, question)
   }
-  if (entities.mentioned_constraints.length === 0) {
-    options.push('Resource constraints / funding')
-  }
-  if (entities.key_features.length === 0) {
-    options.push('Core features and MVP scope')
-  }
-  
-  // Always include these general options
-  options.push('Competitive landscape / differentiation', 'Team/execution capability')
-  
-  return options.slice(0, 4)
+
+  return questions.slice(0, 5)
 }
 
 export function Questionnaire({ prompt, onComplete, onBack }: QuestionnaireProps) {
@@ -200,14 +308,13 @@ export function Questionnaire({ prompt, onComplete, onBack }: QuestionnaireProps
   const [isGenerating, setIsGenerating] = useState(true)
 
   useEffect(() => {
-    // Generate smart questions based on prompt analysis
     const timer = setTimeout(() => {
       const generatedQuestions = generateSmartQuestions(prompt)
-      console.log('[v0] Generated smart questions:', generatedQuestions.length, 'questions')
-      console.log('[v0] First question:', generatedQuestions[0]?.question)
+      console.log('[local] Generated smart questions:', generatedQuestions.length, 'questions')
+      console.log('[local] First question:', generatedQuestions[0]?.question)
       setQuestions(generatedQuestions)
       setIsGenerating(false)
-    }, 1500)
+    }, 500)
     return () => clearTimeout(timer)
   }, [prompt])
 

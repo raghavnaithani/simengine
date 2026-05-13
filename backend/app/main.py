@@ -1,9 +1,16 @@
+from pathlib import Path
+import os
+import sys
+
+repo_root = str(Path(__file__).resolve().parents[2])
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
+
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import httpx
 from urllib.parse import urlparse
-import os
 
 from backend.app.utils.logger import append_log, record_event
 from backend.app.database.connection import close_mongo_connection, get_database
@@ -197,8 +204,6 @@ async def test_scrape(payload: PromptRequest):
     except Exception as e:
         record_event(level="ERROR", action="test.scrape.error", message=str(e))
         raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.post("/simulate/start")
 async def simulate_start(payload: StartSimulationPayload):
     """Start a simulation session. This creates a session job and begins world-building in background."""
@@ -534,7 +539,17 @@ async def get_job_quality(job_id: str):
 
 @app.get('/metrics')
 async def get_system_metrics():
-    """Get system-wide quality metrics aggregated from all jobs."""
+    """Get system-wide quality metrics aggregated from all jobs.
+    
+    Returns basic health metrics even if Mongo is unavailable.
+    """
+    # Always include basic process health
+    base_metrics = {
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "service": "simengine-backend",
+    }
+    
     try:
         db = await get_database()
         
@@ -578,6 +593,7 @@ async def get_system_metrics():
         overall_pass_rate = (success_jobs / total_jobs * 100) if total_jobs > 0 else 0
         
         return {
+            **base_metrics,
             "total_jobs": total_jobs,
             "success_jobs": success_jobs,
             "degraded_jobs": degraded_jobs,
@@ -586,11 +602,17 @@ async def get_system_metrics():
             "overall_citation_rate": round(overall_citation_rate, 2),
             "total_nodes_generated": total_nodes,
             "average_nodes_per_job": round(total_nodes / total_jobs, 1) if total_jobs > 0 else 0,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "database": "connected",
         }
     except Exception as e:
-        append_log(f"get_system_metrics error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Mongo unavailable: return basic health metrics instead of failing
+        append_log(f"get_system_metrics: Mongo unavailable, returning basic metrics: {str(e)}")
+        return {
+            **base_metrics,
+            "database": "unavailable",
+            "note": "Mongo connection failed; returning basic health status only",
+            "error": str(e)[:100],
+        }
 
 
 @app.get('/metrics/summary')

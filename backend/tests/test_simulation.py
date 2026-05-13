@@ -3,6 +3,7 @@ import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock, patch, MagicMock, Mock
 import asyncio
+from itertools import count
 
 # FIX #1, #2, #3, #4, #5, #6, #7: All patches applied BEFORE any fixture instantiation
 # This entire test uses autouse=True fixtures to patch everything before imports/instantiation
@@ -222,11 +223,14 @@ async def test_create_branch(mocked_simulation_engine, mock_db_fixture):
     engine = mocked_simulation_engine
     
     # Mock parent node retrieval
-    mock_db_fixture["decision_nodes"].find_one = AsyncMock(return_value={
-        "id": "parent_node_id",
-        "summary": "parent summary",
-        "time_step": 0
-    })
+    mock_db_fixture["decision_nodes"].find_one = AsyncMock(side_effect=[
+        {
+            "id": "parent_node_id",
+            "summary": "parent summary",
+            "time_step": 0
+        },
+        None,
+    ])
     
     # Mock edge insert to return object with inserted_id
     mock_edge_result = Mock()
@@ -245,6 +249,238 @@ async def test_create_branch(mocked_simulation_engine, mock_db_fixture):
     assert result["edge_id"] == "test_edge_id"
     
     # Verify DB operations
-    mock_db_fixture["decision_nodes"].find_one.assert_called_once()
+    assert mock_db_fixture["decision_nodes"].find_one.call_count == 2
     mock_db_fixture["decision_nodes"].insert_one.assert_called_once()
     mock_db_fixture["edges"].insert_one.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_build_initial_world_branches_into_tree(mocked_simulation_engine, mock_db_fixture):
+    """Test that the initial world fans out into multiple branches instead of a single chain."""
+    engine = mocked_simulation_engine
+
+    node_ids = count(1)
+
+    def make_node(label: str):
+        idx = next(node_ids)
+        node = Mock()
+        node.id = f"node_{idx}"
+        node.title = f"Title {idx}"
+        node.summary = f"Summary {label} {idx}"
+        node.description = f"Description {label} {idx}"
+        node.time_step = 0
+        node.confidence_score = 0.8
+        node.risks = [{"description": "Risk", "severity": "Medium", "likelihood": "Medium"}]
+        node.alternatives = [
+            {"description": f"Aggressive branch {idx}", "action_type": "Pivot"},
+            {"description": f"Conservative branch {idx}", "action_type": "Wait"},
+        ]
+        node.model_dump = Mock(return_value={
+            "id": node.id,
+            "title": node.title,
+            "summary": node.summary,
+            "description": node.description,
+            "time_step": node.time_step,
+            "confidence_score": node.confidence_score,
+            "risks": node.risks,
+            "alternatives": node.alternatives,
+        })
+        return node
+
+    engine.reasoning_engine.generate_decision = AsyncMock(
+        side_effect=[
+            make_node("root"),
+            make_node("a"), make_node("b"),
+            make_node("c"), make_node("d"),
+            make_node("e"), make_node("f"),
+        ]
+    )
+
+    result = await engine.build_initial_world(
+        prompt="Test branching prompt",
+        session_id="branching_session",
+        num_steps=3,
+    )
+
+    assert result["status"] == "completed"
+    assert result["root_node_id"] == "node_1"
+    assert len(result["node_ids"]) == 7
+    assert engine.reasoning_engine.generate_decision.call_count == 7
+    assert mock_db_fixture["edges"].insert_one.call_count == 6
+
+    context_calls = engine.context_builder.get_context_for_reasoner.call_args_list
+    assert len(context_calls) == 10
+    branch_context_queries = [call.args[0] for call in context_calls if "Branch action:" in call.args[0]]
+    assert len(branch_context_queries) == 6
+    assert len(set(branch_context_queries)) == 6
+    assert all("Branch action:" in query for query in branch_context_queries)
+    assert all("Branch depth:" in query for query in branch_context_queries)
+
+    first_edge_call = mock_db_fixture["edges"].insert_one.call_args_list[0]
+    first_edge_payload = first_edge_call.args[0] if first_edge_call.args else first_edge_call.kwargs
+    assert first_edge_payload["action"] in {"Pivot: Aggressive branch 1", "Wait: Conservative branch 1"}
+
+
+@pytest.mark.asyncio
+async def test_get_session_graph_returns_all_session_nodes(mocked_simulation_engine, mock_db_fixture):
+    """Test that session graph returns every node in the session, not only edge-reachable nodes."""
+    engine = mocked_simulation_engine
+
+    node_cursor = MagicMock()
+    node_cursor.to_list = AsyncMock(return_value=[
+        {
+            "id": "root_node",
+            "session_id": "graph_session",
+            "time_step": 0,
+            "created_at": "2026-05-13T10:00:00+00:00",
+        },
+        {
+            "id": "child_node",
+            "session_id": "graph_session",
+            "time_step": 1,
+            "created_at": "2026-05-13T10:01:00+00:00",
+        },
+        {
+            "id": "orphan_node",
+            "session_id": "graph_session",
+            "time_step": 1,
+            "created_at": "2026-05-13T10:02:00+00:00",
+        },
+    ])
+    mock_db_fixture["decision_nodes"].find = MagicMock(return_value=node_cursor)
+
+    edge_cursor = MagicMock()
+    edge_cursor.to_list = AsyncMock(return_value=[
+        {
+            "from": "root_node",
+            "to": "child_node",
+            "action": "Pivot: Expand aggressively",
+            "session_id": "graph_session",
+        }
+    ])
+    mock_db_fixture["edges"].find = MagicMock(return_value=edge_cursor)
+
+    result = await engine.get_session_graph("graph_session")
+
+    assert len(result["nodes"]) == 3
+    assert {node["id"] for node in result["nodes"]} == {"root_node", "child_node", "orphan_node"}
+    assert len(result["edges"]) == 1
+    assert result["edges"][0]["action"] == "Pivot: Expand aggressively"
+
+
+@pytest.mark.asyncio
+async def test_branch_breadth_reaches_multiple_nodes_per_timestep(mocked_simulation_engine, mock_db_fixture):
+    """Test that multi-step expansion produces more than one node on a non-root timestep."""
+    engine = mocked_simulation_engine
+
+    node_ids = count(1)
+
+    def make_node(label: str):
+        idx = next(node_ids)
+        node = Mock()
+        node.id = f"breadth_{idx}"
+        node.title = f"Breadth Title {idx}"
+        node.summary = f"Breadth summary {label} {idx}"
+        node.description = f"Breadth description {label} {idx}"
+        node.time_step = 0
+        node.confidence_score = 0.8
+        node.risks = [{"description": "Risk", "severity": "Medium", "likelihood": "Medium"}]
+        node.alternatives = [
+            {"description": f"Aggressive branch {idx}", "action_type": "Pivot"},
+            {"description": f"Conservative branch {idx}", "action_type": "Wait"},
+        ]
+        node.model_dump = Mock(side_effect=lambda: {
+            "id": node.id,
+            "title": node.title,
+            "summary": node.summary,
+            "description": node.description,
+            "time_step": node.time_step,
+            "confidence_score": node.confidence_score,
+            "risks": node.risks,
+            "alternatives": node.alternatives,
+        })
+        return node
+
+    engine.reasoning_engine.generate_decision = AsyncMock(
+        side_effect=[
+            make_node("root"),
+            make_node("a"), make_node("b"),
+            make_node("c"), make_node("d"),
+            make_node("e"), make_node("f"),
+        ]
+    )
+
+    result = await engine.build_initial_world(
+        prompt="Test breadth prompt",
+        session_id="breadth_session",
+        num_steps=3,
+    )
+
+    assert result["status"] == "completed"
+    assert len(result["node_ids"]) == 7
+
+    inserted_docs = [call.args[0] for call in mock_db_fixture["decision_nodes"].insert_one.call_args_list]
+    time_step_counts = {}
+    for doc in inserted_docs:
+        time_step_counts[doc["time_step"]] = time_step_counts.get(doc["time_step"], 0) + 1
+
+    assert time_step_counts[0] == 1
+    assert time_step_counts[1] >= 2
+    assert max(time_step_counts.values()) >= 2
+    assert any(doc.get("branch_action") for doc in inserted_docs if doc["time_step"] > 0)
+
+
+@pytest.mark.asyncio
+async def test_branch_divergence_changes_downstream_node_content(mocked_simulation_engine, mock_db_fixture):
+    """Test that sibling branches produce visibly different downstream node content."""
+    engine = mocked_simulation_engine
+
+    node_ids = count(1)
+
+    def make_branch_node(prompt: str):
+        idx = next(node_ids)
+        node = Mock()
+        node.id = f"diverge_{idx}"
+        node.title = f"Divergence Title {idx}"
+        branch_marker = "Aggressive" if "Pivot" in prompt else "Conservative" if "Wait" in prompt else f"Root {idx}"
+        node.summary = f"Outcome shaped by {branch_marker} choice {idx}"
+        node.description = f"This branch follows the {branch_marker.lower()} path and reaches a distinct outcome for step {idx}."
+        node.time_step = 0
+        node.confidence_score = 0.8
+        node.risks = [{"description": f"Risk for {branch_marker}", "severity": "Medium", "likelihood": "Medium"}]
+        node.alternatives = [
+            {"description": f"Next move for {branch_marker}", "action_type": branch_marker},
+            {"description": f"Alternate move for {branch_marker}", "action_type": "Review"},
+        ]
+        node.model_dump = Mock(side_effect=lambda: {
+            "id": node.id,
+            "title": node.title,
+            "summary": node.summary,
+            "description": node.description,
+            "time_step": node.time_step,
+            "confidence_score": node.confidence_score,
+            "risks": node.risks,
+            "alternatives": node.alternatives,
+        })
+        return node
+
+    def generate_decision_side_effect(prompt, context, **kwargs):
+        return make_branch_node(prompt)
+
+    engine.reasoning_engine.generate_decision = AsyncMock(side_effect=generate_decision_side_effect)
+
+    result = await engine.build_initial_world(
+        prompt="Test divergence prompt",
+        session_id="divergence_session",
+        num_steps=2,
+    )
+
+    assert result["status"] == "completed"
+    assert len(result["node_ids"]) == 3
+
+    inserted_docs = [call.args[0] for call in mock_db_fixture["decision_nodes"].insert_one.call_args_list]
+    branch_docs = [doc for doc in inserted_docs if doc["time_step"] == 1]
+    assert len(branch_docs) == 2
+    assert branch_docs[0]["summary"] != branch_docs[1]["summary"]
+    assert branch_docs[0]["description"] != branch_docs[1]["description"]
+    assert branch_docs[0]["branch_action"] != branch_docs[1]["branch_action"]

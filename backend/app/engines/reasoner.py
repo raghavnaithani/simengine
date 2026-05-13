@@ -47,6 +47,7 @@ class ReasoningEngine:
         self.truncation_warning_threshold = float(os.getenv("TRUNCATION_WARNING_THRESHOLD", "0.85"))
         self.ensemble_enabled = os.getenv("OLLAMA_ENSEMBLE_ENABLED", "0") == "1"
         self.ensemble_candidates = max(1, int(os.getenv("OLLAMA_ENSEMBLE_CANDIDATES", "1")))
+        self.force_minimal_schema_prompt = os.getenv("OLLAMA_FORCE_MINIMAL_SCHEMA_PROMPT", "0") == "1"
 
         append_log(
             "ReasoningEngine: runtime config "
@@ -56,7 +57,29 @@ class ReasoningEngine:
             f"num_predict={self.ollama_num_predict}, "
             f"context_max_chunks={self.context_max_chunks}, "
             f"backoff=(base={self.backoff_base_seconds}s, mult={self.backoff_multiplier}, max={self.backoff_max_seconds}s), "
-            f"token_budget=(prompt={self.prompt_token_budget}, output={self.model_output_token_budget})"
+            f"token_budget=(prompt={self.prompt_token_budget}, output={self.model_output_token_budget}), "
+            f"minimal_schema_prompt={self.force_minimal_schema_prompt}"
+        )
+
+    def _build_minimal_schema_prompt(self, prompt: str, context_text: str, persona: str) -> str:
+        """Build a compact schema-first prompt for weaker models during diagnostics."""
+        persona_text = self._get_persona_prompt(persona)
+        return (
+            f"You are a strategic simulation engine. {persona_text}\n\n"
+            "Return ONLY valid JSON with this exact schema and nothing else:\n"
+            "{\"title\": string, \"summary\": string, \"description\": string, "
+            "\"risks\": [{\"description\": string, \"severity\": \"Low|Medium|High\", \"likelihood\": \"Low|Medium|High\"}], "
+            "\"alternatives\": [{\"description\": string, \"action_type\": string}], "
+            "\"source_citations\": [string], \"speculative\": boolean}\n\n"
+            "Hard requirements:\n"
+            "- risks must contain at least 2 objects\n"
+            "- alternatives must contain exactly 2 objects\n"
+            "- each alternative action_type must be different\n"
+            "- include at least 1 source_citations entry in format \"Source: cache:<id> | <url>\"\n"
+            "- do not output markdown, comments, or extra keys\n\n"
+            f"SCENARIO:\n{prompt}\n\n"
+            f"CONTEXT:\n{context_text}\n\n"
+            "JSON OUTPUT:"
         )
 
     def _citation_body_from_chunk(self, chunk: Dict[str, Any]) -> Optional[str]:
@@ -286,11 +309,26 @@ class ReasoningEngine:
         # when the model repeats an id value across generations.
         data["id"] = str(uuid.uuid4())
 
-        if not data.get("description"):
-            data["description"] = (
-                "Generated with partial structured output; details were normalized "
-                "from the model response."
+        def _fallback_description(title_text: str, summary_text: str) -> str:
+            title_text = (title_text or "the scenario").strip()
+            summary_text = (summary_text or "limited model output").strip()
+            return (
+                f"This fallback node was generated because the model output was incomplete for {title_text}.\n"
+                f"The engine preserved the available structured fields and normalized them for review.\n"
+                f"The node should be treated as speculative and rechecked against the live model flow.\n"
+                f"Summary context: {summary_text}."
             )
+
+        def _fallback_summary(title_text: str) -> str:
+            title_text = (title_text or "this decision").strip()
+            return (
+                f"Speculative fallback summary for {title_text}; the model response was incomplete and required normalization."
+            )
+
+        if not data.get("description"):
+            data["description"] = _fallback_description(str(data.get("title", "") or "the scenario"), str(data.get("summary", "") or ""))
+            data["speculative"] = True
+            data["error_reason"] = data.get("error_reason") or "partial structured output normalized"
 
         # FIX: Handle title as list or non-string (LLM sometimes returns structured formats)
         title = data.get("title")
@@ -298,13 +336,15 @@ class ReasoningEngine:
             # If title is a list (e.g., [{'@type': 'string', 'name': '...'}]), extract first string or use placeholder
             title = next((t.get("name") if isinstance(t, dict) else str(t) for t in title), None) or "Strategic Scenario Analysis"
         elif not isinstance(title, str) or not title.strip():
-            title = "Strategic Scenario Analysis"
+            title = str(data.get("summary", "") or "Strategic Scenario Analysis").strip()
+            if not title or title.lower() == "strategic scenario analysis":
+                title = "Speculative Decision Analysis"
         data["title"] = title.strip() if isinstance(title, str) else str(title)
 
         if not data.get("summary"):
-            data["summary"] = str(data.get("description", "")).strip()[:180] or (
-                "Model provided limited structured content; review details and branch options."
-            )
+            data["summary"] = _fallback_summary(str(data.get("title", "") or "this decision"))
+            data["speculative"] = True
+            data["error_reason"] = data.get("error_reason") or "partial structured output normalized"
 
         try:
             val = data.get("time_step")
@@ -328,7 +368,13 @@ class ReasoningEngine:
                 valid_risks.append(r)
 
         if not valid_risks:
-            data["risks"] = [{"description": "General uncertainty.", "severity": "Medium", "likelihood": "Medium"}]
+            data["risks"] = [{
+                "description": "The model response omitted scenario-specific risks, so the engine retained a cautious fallback risk for manual review.",
+                "severity": "Medium",
+                "likelihood": "Medium",
+            }]
+            data["speculative"] = True
+            data["error_reason"] = data.get("error_reason") or "fallback risks synthesized"
         else:
             data["risks"] = valid_risks
 
@@ -339,10 +385,47 @@ class ReasoningEngine:
         valid_alts = []
         for a in data.get("alternatives", []):
             if isinstance(a, dict):
-                a["description"] = a.get("description") or "Explore option"
-                a["action_type"] = a.get("action_type") or "Wait"
+                a["description"] = a.get("description") or (
+                    "This fallback alternative was synthesized because the model output did not provide a usable branch option."
+                )
+                a["action_type"] = a.get("action_type") or "Mitigate"
                 valid_alts.append(a)
-        data["alternatives"] = valid_alts
+        # Ensure at least two distinct, non-placeholder alternatives are present
+        filtered_alts = []
+        seen_actions = set()
+        for a in valid_alts:
+            action = str(a.get("action_type") or "").strip()
+            desc = str(a.get("description") or "").strip()
+            if not action:
+                continue
+            # Treat common placeholders as invalid
+            if action.lower() in ("wait", "placeholder", "none", "n/a", "undetermined"):
+                continue
+            if action not in seen_actions:
+                seen_actions.add(action)
+                filtered_alts.append({"description": desc or "Explore option", "action_type": action})
+
+        # If after filtering we have fewer than 2 usable alternatives, synthesize conservative fallbacks
+        fallback_actions = ["Implement", "Mitigate", "Monitor", "Defer"]
+        i = 0
+        while len(filtered_alts) < 2 and i < len(fallback_actions):
+            candidate = fallback_actions[i]
+            if candidate not in seen_actions:
+                filtered_alts.append({
+                    "description": (
+                        f"{candidate} the recommended action for this speculative fallback branch while the live model output is incomplete and must be revalidated."
+                    ),
+                    "action_type": candidate,
+                })
+                seen_actions.add(candidate)
+            i += 1
+
+        data["alternatives"] = filtered_alts
+
+        if not data.get("speculative") and (not valid_alts or len(filtered_alts) < len(valid_alts)):
+            data["speculative"] = True
+        if data.get("speculative") and not data.get("error_reason"):
+            data["error_reason"] = "partial structured output normalized"
 
         citation_candidates: List[Any] = []
         if isinstance(data.get('source_citations'), list):
@@ -373,6 +456,16 @@ class ReasoningEngine:
         elif title.lower() in generic_titles:
             issues.append("generic title")
 
+        # Content depth check: description should be 30-40 words and 3-6 logical lines
+        description = str(clean_data.get("description", "") or "").strip()
+        if description:
+            word_count = len(description.split())
+            line_count = len([l for l in description.split('\n') if l.strip()])
+            if word_count < 30:
+                issues.append(f"description too shallow ({word_count} words, need >=30)")
+            if line_count < 3:
+                issues.append(f"description lacks depth ({line_count} lines, need >=3)")
+
         risks = clean_data.get("risks") or []
         if len(risks) < 2:
             issues.append("fewer than 2 risks")
@@ -385,6 +478,24 @@ class ReasoningEngine:
         alternatives = clean_data.get("alternatives") or []
         if len(alternatives) < 2:
             issues.append("fewer than 2 alternatives")
+        # Check alternative descriptions and action types
+        seen_action_types = set()
+        for alt in alternatives:
+            alt_description = str(getattr(alt, "description", None) or alt.get("description", "") if isinstance(alt, dict) else "").strip()
+            alt_action = str(getattr(alt, "action_type", None) or alt.get("action_type", "") if isinstance(alt, dict) else "").strip()
+            if alt_description and len(alt_description.split()) < 6:
+                issues.append("alternative description too short")
+                break
+            if not alt_action:
+                issues.append("alternative missing action_type")
+                break
+            if alt_action.lower() in ("wait", "placeholder", "none", "n/a", "undetermined"):
+                issues.append("alternative has placeholder action_type")
+                break
+            if alt_action in seen_action_types:
+                issues.append("duplicate alternative action_type")
+                break
+            seen_action_types.add(alt_action)
 
         citations = clean_data.get("source_citations") or []
         if not citations:
@@ -790,12 +901,19 @@ class ReasoningEngine:
             # Build the structured V2 prompt first, then fall back to the compact
             # inline prompt if the template loader fails for any reason.
             try:
-                full_prompt = PromptBuilder.build_v2_prompt(
-                    prompt=prompt,
-                    context_text=compact_context,
-                    persona=persona,
-                    use_template=True,
-                )
+                if self.force_minimal_schema_prompt:
+                    full_prompt = self._build_minimal_schema_prompt(
+                        prompt=prompt,
+                        context_text=compact_context,
+                        persona=persona,
+                    )
+                else:
+                    full_prompt = PromptBuilder.build_v2_prompt(
+                        prompt=prompt,
+                        context_text=compact_context,
+                        persona=persona,
+                        use_template=True,
+                    )
                 full_prompt = f"{full_prompt}{build_variant_suffix(prompt_experiment_variant)}"
                 if prompt_suffix:
                     full_prompt = f"{full_prompt}\n\nENSEMBLE FOCUS:\n{prompt_suffix}"
@@ -810,8 +928,10 @@ class ReasoningEngine:
                     "3. Schema: {title, summary, description, risks: [{description, severity (Low/Medium/High), likelihood (Low/Medium/High)}], alternatives: [{description, action_type}], source_citations: [string], speculative: boolean}\n"
                     "4. Use only sources shown in CONTEXT. Every factual claim should cite them with [Source: cache:<id> | <url>]. Also copy each used citation into source_citations as \"Source: cache:<id> | <url>\".\n"
                     "5. If claim cannot be grounded, set speculative: true.\n"
-                    "6. Keep each text field concise (1-2 sentences max).\n"
-                    "7. Ensure all strings are properly quoted, all commas are correct, no trailing commas."
+                    "6. Description field MUST be substantive: at least 30 words, with 3-6 logical lines of content.\n"
+                    "7. Generate EXACTLY 2+ alternatives with distinct action_type values (not 'Wait' or generic placeholder).\n"
+                    "8. Generate 2-3 concrete risks with specific business/operational impact language (avoid generic 'General uncertainty').\n"
+                    "9. Ensure all strings are properly quoted, all commas are correct, no trailing commas."
                 )
                 full_prompt = f"{instruction}\n\nSCENARIO: {prompt}\n\nCONTEXT:\n{compact_context}\n\nJSON OUTPUT:"
                 full_prompt = f"{full_prompt}{build_variant_suffix(prompt_experiment_variant)}"
@@ -829,6 +949,7 @@ class ReasoningEngine:
         max_json_retries = min(3, max(1, self.ollama_json_max_retries))
         body = None
         last_parse_error = None
+        attempt_trace: List[Dict[str, Any]] = []
         
         for json_attempt in range(max_json_retries):
             try:
@@ -847,6 +968,12 @@ class ReasoningEngine:
                     temperature=temperature,
                     timeout=self.ollama_timeout_seconds,
                 )
+                attempt_trace.append({
+                    "attempt": json_attempt + 1,
+                    "prompt_len": len(retry_prompt),
+                    "raw_len": len(body),
+                    "raw_sample": str(body)[:500],
+                })
                 append_log(f"ReasoningEngine: raw output len={len(body)} (attempt {json_attempt + 1})")
                 record_event(level="INFO", action="reasoner.raw_output", message="raw output received", details={"job_id": job_id, "length": len(body), "attempt": json_attempt + 1})
 
@@ -950,6 +1077,8 @@ class ReasoningEngine:
                         "raw": body,
                         "clean": clean_data,
                         "node": node.model_dump(),
+                        "attempt_trace": attempt_trace,
+                        "attempts_used": json_attempt + 1,
                         "prompt": full_prompt[:1000],
                         "created_at": datetime.now().astimezone(),
                         "success": True,
@@ -979,6 +1108,12 @@ class ReasoningEngine:
                 
             except Exception as e:
                 last_parse_error = str(e)
+                attempt_trace.append({
+                    "attempt": json_attempt + 1,
+                    "error": last_parse_error,
+                    "raw_len": len(body) if isinstance(body, str) else None,
+                    "raw_sample": str(body)[:500] if isinstance(body, str) else None,
+                })
                 append_log(f"ReasoningEngine: JSON parsing attempt {json_attempt + 1} failed: {last_parse_error}")
                 
                 if json_attempt == max_json_retries - 1:
@@ -993,6 +1128,8 @@ class ReasoningEngine:
                             "job_id": job_id,
                             "raw": body if body else None,
                             "error": last_parse_error,
+                            "attempt_trace": attempt_trace,
+                            "attempts_used": max_json_retries,
                             "prompt": full_prompt[:1000] if "full_prompt" in locals() else None,
                             "created_at": datetime.now().astimezone(),
                             "success": False,

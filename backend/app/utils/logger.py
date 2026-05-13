@@ -55,7 +55,8 @@ def record_event(level: str = 'INFO', action: Optional[str] = None, message: Opt
 def append_log(message: str, level: str = 'INFO') -> None:
     """Backward-compatible wrapper - writes to error_log.txt for raw backend logs."""
     record_event(level=level, message=message)
-    print(f"[DEBUG] Writing log: {message}")
+    # Removed unsafe print() that crashed on non-ASCII characters in Windows console
+    # The message is safely written to the log file with UTF-8 encoding above
 
 
 def agent_log(message: str, level: str = 'INFO') -> None:
