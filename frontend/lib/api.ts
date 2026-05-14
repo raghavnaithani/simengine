@@ -240,10 +240,63 @@ export async function loadGraphAfterJobCompletion(
     }
   }
 
+  // Enrich nodes with topology signals for UI clarity
+  const enrichedNodes = enrichNodesWithTopology(graph.nodes || [], adaptedEdges)
+
   return {
-    nodes: graph.nodes,
+    nodes: enrichedNodes,
     edges: adaptedEdges,
   }
+}
+
+// Enrich nodes with frontend-only signals: `node_depth` and `branch_breadth` so the UI can
+// surface graph quality signals (breadth, depth) without additional server calls.
+function enrichNodesWithTopology(nodes: DecisionNode[], edges: GraphEdge[]): DecisionNode[] {
+  const nodesById: Record<string, DecisionNode> = {}
+  nodes.forEach(n => { nodesById[n.id] = { ...n } })
+
+  const childrenMap: Record<string, string[]> = {}
+  const parentsMap: Record<string, string[]> = {}
+  edges.forEach(e => {
+    childrenMap[e.source] = childrenMap[e.source] || []
+    childrenMap[e.source].push(e.target)
+    parentsMap[e.target] = parentsMap[e.target] || []
+    parentsMap[e.target].push(e.source)
+  })
+
+  // Find root candidates: nodes with no parents or time_step === 0
+  const roots = nodes.filter(n => (parentsMap[n.id] || []).length === 0 || n.time_step === 0).map(n => n.id)
+
+  // BFS to compute minimal depth for each node
+  const depthMap: Record<string, number> = {}
+  const queue: string[] = []
+  roots.forEach(r => { depthMap[r] = 0; queue.push(r) })
+
+  while (queue.length) {
+    const cur = queue.shift() as string
+    const children = childrenMap[cur] || []
+    children.forEach(childId => {
+      const nextDepth = (depthMap[cur] ?? 0) + 1
+      if (depthMap[childId] === undefined || nextDepth < depthMap[childId]) {
+        depthMap[childId] = nextDepth
+        queue.push(childId)
+      }
+    })
+  }
+
+  // Compute branch breadth: number of direct children for each node's parent grouping
+  const breadthMap: Record<string, number> = {}
+  Object.keys(childrenMap).forEach(parentId => {
+    const count = childrenMap[parentId].length
+    breadthMap[parentId] = count
+  })
+
+  // Attach computed signals onto a shallow copy of the nodes
+  return Object.values(nodesById).map(n => ({
+    ...n,
+    node_depth: depthMap[n.id] ?? 0,
+    branch_breadth: breadthMap[n.id] ?? 0,
+  }))
 }
 
 /**

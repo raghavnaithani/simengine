@@ -127,6 +127,7 @@ export const DecisionNodeComponent = memo(function DecisionNodeComponent({
   selected,
 }: DecisionNodeProps) {
   const [branchMenuOpen, setBranchMenuOpen] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   
   const {
     id,
@@ -156,6 +157,16 @@ export const DecisionNodeComponent = memo(function DecisionNodeComponent({
   const riskColor = getRiskColor(risks)
   const displayedRisks = risks.slice(0, 5)
   const hasMoreRisks = risks.length > 5
+  // Deduplicate alternatives by normalized label to avoid repeated menu entries
+  const seenAltLabels = new Set<string>()
+  const displayedAlternatives = alternatives.filter(alt => {
+    const label = getAlternativeLabel(alt).trim()
+    if (seenAltLabels.has(label)) return false
+    seenAltLabels.add(label)
+    return true
+  })
+
+  const shouldShowExpand = (summary && summary.length > 220) || (data.description && data.description.length > 120)
 
   return (
     <>
@@ -192,17 +203,61 @@ export const DecisionNodeComponent = memo(function DecisionNodeComponent({
             <h3 className="line-clamp-1 flex-1 font-semibold text-card-foreground">
               {title}
             </h3>
-            <ConfidenceBadge 
+            <div className="flex items-center gap-2">
+              {/* Depth / Breadth indicators */}
+              {data.node_depth !== undefined && (
+                <div className="text-xs rounded-full bg-muted/30 px-2 py-0.5 text-muted-foreground">
+                  D{data.node_depth}
+                </div>
+              )}
+              {data.branch_breadth !== undefined && data.branch_breadth > 0 && (
+                <div className="text-xs rounded-full bg-muted/30 px-2 py-0.5 text-muted-foreground">
+                  B{data.branch_breadth}
+                </div>
+              )}
+              <ConfidenceBadge 
               score={confidence_score} 
               speculative={speculative}
               hasCitations={source_citations.length > 0}
             />
+            </div>
           </div>
 
+          {/* Explicit fallback / failure banner when node is speculative or unverified */}
+          {(speculative || source_citations.length === 0) && (
+            <div className="mt-2 rounded-md border border-border bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              {speculative ? (
+                <strong>Speculative:</strong>
+              ) : (
+                <strong>Unverified:</strong>
+              )}
+              <span className="ml-2">This node contains partial or fallback content — treat as ungrounded unless verified.</span>
+            </div>
+          )}
+
           {/* Summary */}
-          <p className="mt-2 line-clamp-3 text-sm text-muted-foreground leading-relaxed">
-            {summary}
-          </p>
+          <div className="mt-2 text-sm text-muted-foreground leading-relaxed">
+            <p className={`${expanded ? '' : 'line-clamp-3'}`}>
+              {summary}
+            </p>
+
+            {/* Description appears when expanded or when present and there's no short summary */}
+            {expanded && data.description && (
+              <div className="mt-2 text-sm text-muted-foreground">
+                {data.description}
+              </div>
+            )}
+
+            {shouldShowExpand && (
+              <button
+                onClick={() => setExpanded(s => !s)}
+                className="mt-2 text-xs text-primary hover:underline"
+                aria-expanded={expanded}
+              >
+                {expanded ? 'Show less' : 'Read more'}
+              </button>
+            )}
+          </div>
 
           {/* Risk Indicators */}
           {displayedRisks.length > 0 && (
@@ -286,7 +341,7 @@ export const DecisionNodeComponent = memo(function DecisionNodeComponent({
               <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
                 Choose an action
               </div>
-              {alternatives.map((alt) => (
+              {displayedAlternatives.map((alt) => (
                 <DropdownMenuItem
                   key={alt.id}
                   onClick={() => handleBranch(alt)}
